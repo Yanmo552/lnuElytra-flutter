@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0-beta.5';
 
   @override
-  int get rustContentHash => 1153431082;
+  int get rustContentHash => -552066846;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -84,9 +84,16 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> lnuElytraFlutterFClientClearCookie({required FClient that});
 
+  Future<String?> lnuElytraFlutterFClientCookies({required FClient that});
+
   Future<Course> lnuElytraFlutterFClientFetchCourses({
     required FClient that,
     required String q,
+  });
+
+  Future<List<String>> lnuElytraFlutterFClientFetchSubclassIds({
+    required FClient that,
+    required String doJxbId,
   });
 
   Future<void> lnuElytraFlutterFClientInit({required FClient that});
@@ -115,6 +122,26 @@ abstract class RustLibApi extends BaseApi {
     required FClient that,
     required String courseId,
     required String courseDoId,
+  });
+
+  Future<SelectCourseResponse> lnuElytraFlutterFClientSelectCourseSubclass({
+    required FClient that,
+    required String courseId,
+    required String courseDoId,
+    required String kcmc,
+    required String xkkzId,
+  });
+
+  Future<SelectCourseResponse> lnuElytraFlutterFClientSelectCourseSubclassV2({
+    required FClient that,
+    required String jxbId,
+    required String doJxbId,
+    required String jxbzls,
+  });
+
+  Future<void> lnuElytraFlutterFClientSwitchTab({
+    required FClient that,
+    required String xkkzId,
   });
 
   Future<String?> lnuElytraFlutterFClientVer({required FClient that});
@@ -204,6 +231,37 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<String?> lnuElytraFlutterFClientCookies({required FClient that}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerFClient(
+            that,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kLnuElytraFlutterFClientCookiesConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kLnuElytraFlutterFClientCookiesConstMeta =>
+      const TaskConstMeta(debugName: "FClient_cookies", argNames: ["that"]);
+
+  @override
   Future<Course> lnuElytraFlutterFClientFetchCourses({
     required FClient that,
     required String q,
@@ -220,7 +278,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 4,
             port: port_,
           );
         },
@@ -242,6 +300,44 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<List<String>> lnuElytraFlutterFClientFetchSubclassIds({
+    required FClient that,
+    required String doJxbId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerFClient(
+            that,
+            serializer,
+          );
+          sse_encode_String(doJxbId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: sse_decode_f_error,
+        ),
+        constMeta: kLnuElytraFlutterFClientFetchSubclassIdsConstMeta,
+        argValues: [that, doJxbId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kLnuElytraFlutterFClientFetchSubclassIdsConstMeta =>
+      const TaskConstMeta(
+        debugName: "FClient_fetch_subclass_ids",
+        argNames: ["that", "doJxbId"],
+      );
+
+  @override
   Future<void> lnuElytraFlutterFClientInit({required FClient that}) {
     return handler.executeNormal(
       NormalTask(
@@ -254,7 +350,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 6,
             port: port_,
           );
         },
@@ -289,7 +385,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 7,
             port: port_,
           );
         },
@@ -327,7 +423,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 8,
             port: port_,
           );
         },
@@ -367,7 +463,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 9,
             port: port_,
           );
         },
@@ -394,7 +490,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 8)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 10)!;
         },
         codec: SseCodec(
           decodeSuccessData:
@@ -423,7 +519,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 11,
             port: port_,
           );
         },
@@ -464,7 +560,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 12,
             port: port_,
           );
         },
@@ -486,6 +582,130 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<SelectCourseResponse> lnuElytraFlutterFClientSelectCourseSubclass({
+    required FClient that,
+    required String courseId,
+    required String courseDoId,
+    required String kcmc,
+    required String xkkzId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerFClient(
+            that,
+            serializer,
+          );
+          sse_encode_String(courseId, serializer);
+          sse_encode_String(courseDoId, serializer);
+          sse_encode_String(kcmc, serializer);
+          sse_encode_String(xkkzId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 13,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_select_course_response,
+          decodeErrorData: sse_decode_f_error,
+        ),
+        constMeta: kLnuElytraFlutterFClientSelectCourseSubclassConstMeta,
+        argValues: [that, courseId, courseDoId, kcmc, xkkzId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kLnuElytraFlutterFClientSelectCourseSubclassConstMeta =>
+      const TaskConstMeta(
+        debugName: "FClient_select_course_subclass",
+        argNames: ["that", "courseId", "courseDoId", "kcmc", "xkkzId"],
+      );
+
+  @override
+  Future<SelectCourseResponse> lnuElytraFlutterFClientSelectCourseSubclassV2({
+    required FClient that,
+    required String jxbId,
+    required String doJxbId,
+    required String jxbzls,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerFClient(
+            that,
+            serializer,
+          );
+          sse_encode_String(jxbId, serializer);
+          sse_encode_String(doJxbId, serializer);
+          sse_encode_String(jxbzls, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 14,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_select_course_response,
+          decodeErrorData: sse_decode_f_error,
+        ),
+        constMeta: kLnuElytraFlutterFClientSelectCourseSubclassV2ConstMeta,
+        argValues: [that, jxbId, doJxbId, jxbzls],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kLnuElytraFlutterFClientSelectCourseSubclassV2ConstMeta =>
+      const TaskConstMeta(
+        debugName: "FClient_select_course_subclass_v2",
+        argNames: ["that", "jxbId", "doJxbId", "jxbzls"],
+      );
+
+  @override
+  Future<void> lnuElytraFlutterFClientSwitchTab({
+    required FClient that,
+    required String xkkzId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerFClient(
+            that,
+            serializer,
+          );
+          sse_encode_String(xkkzId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 15,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_f_error,
+        ),
+        constMeta: kLnuElytraFlutterFClientSwitchTabConstMeta,
+        argValues: [that, xkkzId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kLnuElytraFlutterFClientSwitchTabConstMeta =>
+      const TaskConstMeta(
+        debugName: "FClient_switch_tab",
+        argNames: ["that", "xkkzId"],
+      );
+
+  @override
   Future<String?> lnuElytraFlutterFClientVer({required FClient that}) {
     return handler.executeNormal(
       NormalTask(
@@ -498,7 +718,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 16,
             port: port_,
           );
         },
@@ -528,7 +748,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 12,
+              funcId: 17,
               port: port_,
             );
           },
@@ -557,7 +777,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 18,
             port: port_,
           );
         },
@@ -641,12 +861,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Course dco_decode_course(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
     return Course(
       xkkzId: dco_decode_String(arr[0]),
       kchId: dco_decode_String(arr[1]),
-      jxb: dco_decode_list_jxb(arr[2]),
+      kcmc: dco_decode_String(arr[2]),
+      jxb: dco_decode_list_jxb(arr[3]),
     );
   }
 
@@ -684,14 +905,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Jxb dco_decode_jxb(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return Jxb(
       jxbId: dco_decode_String(arr[0]),
       doId: dco_decode_String(arr[1]),
       jsxx: dco_decode_String(arr[2]),
       sksj: dco_decode_String(arr[3]),
+      jxbmc: dco_decode_String(arr[4]),
     );
+  }
+
+  @protected
+  List<String> dco_decode_list_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_String).toList();
   }
 
   @protected
@@ -831,8 +1059,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_xkkzId = sse_decode_String(deserializer);
     var var_kchId = sse_decode_String(deserializer);
+    var var_kcmc = sse_decode_String(deserializer);
     var var_jxb = sse_decode_list_jxb(deserializer);
-    return Course(xkkzId: var_xkkzId, kchId: var_kchId, jxb: var_jxb);
+    return Course(
+      xkkzId: var_xkkzId,
+      kchId: var_kchId,
+      kcmc: var_kcmc,
+      jxb: var_jxb,
+    );
   }
 
   @protected
@@ -869,12 +1103,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_doId = sse_decode_String(deserializer);
     var var_jsxx = sse_decode_String(deserializer);
     var var_sksj = sse_decode_String(deserializer);
+    var var_jxbmc = sse_decode_String(deserializer);
     return Jxb(
       jxbId: var_jxbId,
       doId: var_doId,
       jsxx: var_jsxx,
       sksj: var_sksj,
+      jxbmc: var_jxbmc,
     );
+  }
+
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <String>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_String(deserializer));
+    }
+    return ans_;
   }
 
   @protected
@@ -1044,6 +1292,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.xkkzId, serializer);
     sse_encode_String(self.kchId, serializer);
+    sse_encode_String(self.kcmc, serializer);
     sse_encode_list_jxb(self.jxb, serializer);
   }
 
@@ -1079,6 +1328,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.doId, serializer);
     sse_encode_String(self.jsxx, serializer);
     sse_encode_String(self.sksj, serializer);
+    sse_encode_String(self.jxbmc, serializer);
+  }
+
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_String(item, serializer);
+    }
   }
 
   @protected
@@ -1178,8 +1437,16 @@ class FClientImpl extends RustOpaque implements FClient {
   Future<void> clearCookie() =>
       RustLib.instance.api.lnuElytraFlutterFClientClearCookie(that: this);
 
+  Future<String?> cookies() =>
+      RustLib.instance.api.lnuElytraFlutterFClientCookies(that: this);
+
   Future<Course> fetchCourses({required String q}) => RustLib.instance.api
       .lnuElytraFlutterFClientFetchCourses(that: this, q: q);
+
+  Future<List<String>> fetchSubclassIds({required String doJxbId}) => RustLib
+      .instance
+      .api
+      .lnuElytraFlutterFClientFetchSubclassIds(that: this, doJxbId: doJxbId);
 
   Future<void> init() =>
       RustLib.instance.api.lnuElytraFlutterFClientInit(that: this);
@@ -1205,6 +1472,33 @@ class FClientImpl extends RustOpaque implements FClient {
     courseId: courseId,
     courseDoId: courseDoId,
   );
+
+  Future<SelectCourseResponse> selectCourseSubclass({
+    required String courseId,
+    required String courseDoId,
+    required String kcmc,
+    required String xkkzId,
+  }) => RustLib.instance.api.lnuElytraFlutterFClientSelectCourseSubclass(
+    that: this,
+    courseId: courseId,
+    courseDoId: courseDoId,
+    kcmc: kcmc,
+    xkkzId: xkkzId,
+  );
+
+  Future<SelectCourseResponse> selectCourseSubclassV2({
+    required String jxbId,
+    required String doJxbId,
+    required String jxbzls,
+  }) => RustLib.instance.api.lnuElytraFlutterFClientSelectCourseSubclassV2(
+    that: this,
+    jxbId: jxbId,
+    doJxbId: doJxbId,
+    jxbzls: jxbzls,
+  );
+
+  Future<void> switchTab({required String xkkzId}) => RustLib.instance.api
+      .lnuElytraFlutterFClientSwitchTab(that: this, xkkzId: xkkzId);
 
   Future<String?> ver() =>
       RustLib.instance.api.lnuElytraFlutterFClientVer(that: this);

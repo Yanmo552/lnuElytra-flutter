@@ -9,12 +9,19 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 class Course {
   final String xkkzId;
   final String kchId;
+  final String kcmc;
   final List<Jxb> jxb;
 
-  const Course({required this.xkkzId, required this.kchId, required this.jxb});
+  const Course({
+    required this.xkkzId,
+    required this.kchId,
+    required this.kcmc,
+    required this.jxb,
+  });
 
   @override
-  int get hashCode => xkkzId.hashCode ^ kchId.hashCode ^ jxb.hashCode;
+  int get hashCode =>
+      xkkzId.hashCode ^ kchId.hashCode ^ kcmc.hashCode ^ jxb.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -23,6 +30,7 @@ class Course {
           runtimeType == other.runtimeType &&
           xkkzId == other.xkkzId &&
           kchId == other.kchId &&
+          kcmc == other.kcmc &&
           jxb == other.jxb;
 }
 
@@ -31,17 +39,23 @@ class Jxb {
   final String doId;
   final String jsxx;
   final String sksj;
+  final String jxbmc;
 
   const Jxb({
     required this.jxbId,
     required this.doId,
     required this.jsxx,
     required this.sksj,
+    required this.jxbmc,
   });
 
   @override
   int get hashCode =>
-      jxbId.hashCode ^ doId.hashCode ^ jsxx.hashCode ^ sksj.hashCode;
+      jxbId.hashCode ^
+      doId.hashCode ^
+      jsxx.hashCode ^
+      sksj.hashCode ^
+      jxbmc.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -51,7 +65,8 @@ class Jxb {
           jxbId == other.jxbId &&
           doId == other.doId &&
           jsxx == other.jsxx &&
-          sksj == other.sksj;
+          sksj == other.sksj &&
+          jxbmc == other.jxbmc;
 }
 
 /// { flag: "1", msg: None }

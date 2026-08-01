@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../../../models/grab_outcome.dart';
 import '../../../services/log_store.dart';
@@ -7,7 +7,7 @@ import '../../../services/toaster.dart';
 import '../../../src/rust/third_party/lnu_elytra.dart';
 import '../../../src/rust/third_party/lnu_elytra/flutter.dart';
 
-/// Manual course-grabbing tab with search and course selection.
+/// 手动抢课页：搜索教学班 + 一键抢课（支持多标签学校与子教学班）
 class ManualGrabTab extends StatefulWidget {
   const ManualGrabTab({super.key});
 
@@ -43,6 +43,29 @@ class _ManualGrabTabState extends State<ManualGrabTab>
     super.dispose();
   }
 
+  /// 多标签学校：先当前标签，找不到则逐个切换标签重试
+  Future<Course?> _searchTabAware(String q) async {
+    final school = session.school;
+    if (school == null || !school.hasTabs) {
+      return session.fetchCourses(q);
+    }
+    try {
+      final c = await session.fetchCourses(q);
+      if (c.jxb.isNotEmpty) return c;
+    } catch (_) {}
+    for (final tab in school.tabs) {
+      try {
+        await session.switchTab(tab.id);
+        final c = await session.fetchCourses(q);
+        if (c.jxb.isNotEmpty) {
+          logStore.info('在标签 [${tab.name}] 找到: $q');
+          return c;
+        }
+      } catch (_) {}
+    }
+    return session.fetchCourses(q);
+  }
+
   Future<void> _search() async {
     final q = _queryCtrl.text.trim();
 
@@ -52,7 +75,7 @@ class _ManualGrabTabState extends State<ManualGrabTab>
     });
 
     try {
-      final course = await session.fetchCourses(q);
+      final course = await _searchTabAware(q);
       setState(() {
         _course = course;
         _lastQuery = q;
@@ -89,7 +112,19 @@ class _ManualGrabTabState extends State<ManualGrabTab>
         courseDoId: jxb.doId,
       );
       if (!mounted) return;
-      _showResult(resp);
+
+      final msg = resp.msg ?? '';
+      if (resp.flag != '1' && (msg.contains('子教学班') || msg.contains('子班'))) {
+        logStore.info('检测到子教学班课程，尝试子班选课...');
+        final ok = await _trySubclass(course, jxb);
+        if (ok) {
+          _snack('子班选课成功');
+        } else {
+          _snack('子班选课失败：$msg', isError: true);
+        }
+      } else {
+        _showResult(resp);
+      }
     } on FError catch (e) {
       if (e.kind == FErrorKind.loginFailed) {
         logStore.error('检测到登录失效，正在退出登录...');
@@ -109,6 +144,38 @@ class _ManualGrabTabState extends State<ManualGrabTab>
     } finally {
       if (mounted) setState(() => _grabbingDoId = null);
     }
+  }
+
+  /// 子教学班选课：V2（丽江专用端点）→ V1（通用）
+  Future<bool> _trySubclass(Course course, Jxb jxb) async {
+    try {
+      final r = await session.selectCourseSubclassV2(
+        jxbId: jxb.jxbId,
+        doJxbId: jxb.doId,
+        jxbzls: '1',
+      );
+      if (r.flag == '1') return true;
+      logStore.info('子班V2: ${r.msg}');
+    } catch (e) {
+      logStore.info('子班V2-err: $e');
+    }
+    try {
+      final ids = await session.fetchSubclassIds(jxb.doId);
+      if (ids.isNotEmpty) {
+        final combined = '${jxb.doId},${ids.first}';
+        final r = await session.selectCourseSubclass(
+          courseId: course.kchId,
+          courseDoId: combined,
+          kcmc: course.kcmc,
+          xkkzId: course.xkkzId,
+        );
+        if (r.flag == '1') return true;
+        logStore.info('子班V1: ${r.msg}');
+      }
+    } catch (e) {
+      logStore.info('子班V1-err: $e');
+    }
+    return false;
   }
 
   void _showResult(SelectCourseResponse resp) {
@@ -152,7 +219,6 @@ class _ManualGrabTabState extends State<ManualGrabTab>
                 ),
               ),
               const SizedBox(width: 8),
-              // Square search button
               SizedBox(
                 height: 56,
                 width: 56,
@@ -208,7 +274,8 @@ class _ManualGrabTabState extends State<ManualGrabTab>
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Text(
-            '「$_lastQuery」  课程号 ${course.kchId}  共 ${course.jxb.length} 个教学班',
+            '「$_lastQuery」${course.kcmc.isEmpty ? '' : ' · ${course.kcmc}'}'
+            '  课程号 ${course.kchId}  共 ${course.jxb.length} 个教学班',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
@@ -237,9 +304,16 @@ class _ManualGrabTabState extends State<ManualGrabTab>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  jxb.jxbId,
+                  jxb.jxbmc.isEmpty ? jxb.jxbId : jxb.jxbmc,
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
+                if (jxb.jxbmc.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    jxb.jxbId,
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ],
                 const SizedBox(height: 4),
                 _buildMeta(Icons.person_outline, jxb.jsxx),
                 const SizedBox(height: 2),

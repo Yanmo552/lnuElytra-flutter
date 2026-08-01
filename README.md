@@ -1,55 +1,81 @@
-# lnu_elytra
+﻿# lnuElytra Flutter 多学校版
 
-https://github.com/mcitem/lnuElytra
+基于 [mcitem/lnuElytra](https://github.com/mcitem/lnuElytra) 原作者 Flutter GUI（flutter_rust_bridge + cargokit）继续开发，
+内置**多学校适配**：岭南师范学院、丽江师范学院（6 个选课标签页）、山东青年政治学院、广州商学院，也支持自定义服务器与自定义标签。
 
-A new Flutter project.
+> 仅供技术学习研究使用，不保证可用性、成功率，一切风险与后果由使用者自行承担（AGPL-3.0）。
 
-## Getting Started
+## 功能
 
-This project is a starting point for a Flutter application.
+- **登录**：账密登录 / Cookie 登录，选择学校或自定义服务器地址；登录成功自动保存 Cookie，会话失效自动重登。
+- **自动抢课（监控）**：
+  - 预设课程按**添加顺序 = 志愿顺序**排列，可上下调整；
+  - **最多选 N 门**（0 = 全部）、**并行 / 按志愿顺序**、**轮询间隔(ms)** 可调；
+  - 丽江师范等多标签学校支持**自动遍历标签**或指定目标标签；
+  - 到点自动 `init` 直到选课开放，开放后持续轮询选课；
+  - 支持**子教学班课程**（V2 丽江专用端点 → V1 通用端点自动回退）。
+- **手动抢课**：搜索教学班（多标签自动切换）、一键抢课、子教学班回退。
 
-A few resources to get you started if this is your first Flutter project:
+## 学校配置
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+学校定义在 `lib/models/school.dart`。每个学校：服务器地址 + 标签页列表（`xkkz_id`）。
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```dart
+School(
+  id: 'lijiang',
+  name: '丽江师范学院',
+  server: 'http://newjw.lj-edu.cn/jwglxt',
+  tabs: [
+    SchoolTab('54FC1FF9A3362073E06371D2A8C0AD3A', '板块课(大学体育3（本科）)'),
+    // ...
+  ],
+),
+```
+
+Rust 核心（含多学校扩展方法）位于 `rust/core/`，由 `rust/Cargo.toml` 以 path 依赖引入：
+`lnu-elytra = { path = "core", features = ["__flutter", "reqwest_cookie_store", "tracing"] }`
+
+## 编译（Windows 桌面版）
+
+前置要求：
+
+- Flutter SDK（stable，测试于 3.44.8）+ Dart
+- Rust stable **MSVC** 工具链（`rustup toolchain list` 只保留 `stable-x86_64-pc-windows-msvc`）
+- Visual Studio 2022+（含「使用 C++ 的桌面开发」与 Windows 10/11 SDK）
+- 国内网络建议设置镜像：
+  - `PUB_HOSTED_URL=https://pub.flutter-io.cn`
+  - `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`
+
+构建：
 
 ```sh
-# local.properties
-RELEASE_STORE_FILE=
-RELEASE_KEY_ALIAS=
-RELEASE_STORE_PASSWORD=
-RELEASE_KEY_PASSWORD=
+flutter pub get
+flutter build windows --release
+# 产物：build\windows\x64\runner\Release\lnu_elytra.exe
 ```
 
-```jsonc
-// ohos.build-profile.json5
-{
-  "name": "default",
-  "type": "HarmonyOS",
-  "material": {
-    "storeFile": "..",
-    "storePassword": "..",
-    "keyAlias": "..",
-    "keyPassword": "..",
-    "signAlg": "..",
-    "profile": "..",
-    "certpath": "..",
-  },
-}
-```
+注意：项目路径请勿包含中文/空格（cargokit 用 cmd `echo` 生成 pubspec.yaml，中文路径会导致 Dart 解析失败）。
+
+## 修改 Rust 桥接后重新生成绑定
 
 ```sh
-fvm use hmos/3.35.8-ohos-1.0.1
+cargo install flutter_rust_bridge_codegen --version 2.13.0-beta.5 --locked
+flutter_rust_bridge_codegen generate
 ```
 
-```sh
-fvm use stable
-```
+`rust/core/src/flutter.rs` 是 Rust → Dart 的桥接层（FClient），新增方法后需要重新生成
+`rust/src/frb_generated.rs` 与 `lib/src/rust/` 下的 Dart 绑定。
 
-```sh
-flutter --version
-```
+## 目录
+
+- `rust/core/` —— 多学校 Rust 核心（fork 自 lnuElytra 0.0.10，新增 switch_tab / 子教学班等）
+- `rust/src/` —— FRB wrapper（rust_lib_lnu_elytra）
+- `lib/models/school.dart` —— 学校配置
+- `lib/views/login/` —— 登录页（学校选择）
+- `lib/views/home/auto_grab/` —— 预设抢课（监控）
+- `lib/views/home/manual_grab/` —— 手动抢课
+
+## 鸣谢
+
+- 原作者 [mcitem/lnuElytra](https://github.com/mcitem/lnuElytra)（AGPL-3.0）
+- 多学校适配思路记录见 `lnuElytra-new/docs/school-adaptation/DEVELOPER_NOTES.md`（Python CLI 版开发笔记）

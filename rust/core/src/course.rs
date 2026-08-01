@@ -1,0 +1,65 @@
+use serde::Serialize;
+
+use crate::method::SelectCourseResponse;
+use crate::{
+    Client,
+    error::{Error, R},
+};
+
+#[cfg_attr(
+    feature = "__pyo3",
+    cfg_attr(test, pyo3_stub_gen::derive::gen_stub_pyclass),
+    derive(Clone),
+    pyo3::pyclass(get_all, from_py_object)
+)]
+#[derive(Debug, Serialize)]
+pub struct Jxb {
+    pub jxb_id: String,
+    pub do_id: String,
+    pub jsxx: String,
+    pub sksj: String,
+    pub jxbmc: String,
+}
+
+#[cfg_attr(
+    feature = "__pyo3",
+    cfg_attr(test, pyo3_stub_gen::derive::gen_stub_pyclass),
+    derive(Clone),
+    pyo3::pyclass(get_all, from_py_object)
+)]
+#[derive(Debug, Serialize)]
+pub struct Course {
+    pub xkkz_id: String,
+    pub kch_id: String,
+    pub kcmc: String,
+    pub jxb: Vec<Jxb>,
+}
+
+impl Course {
+    pub async fn try_select_0(&self, i: &Client) -> R<SelectCourseResponse> {
+        let do_id = &self
+            .jxb
+            .first()
+            .ok_or(Error::JxbNotFound("try_select_0"))?
+            .do_id;
+
+        i.select_course(&self.kch_id, do_id).await
+    }
+}
+
+impl Course {
+    // 星期四第9-10节{9-16周}
+    // 16周
+    pub async fn try_select_by_time(&self, i: &Client, q: &str) -> R<SelectCourseResponse> {
+        let course_id = &self.kch_id;
+
+        let do_id = &self
+            .jxb
+            .iter()
+            .find(|x| x.sksj.contains(q))
+            .ok_or(Error::JxbNotFound("try_select_by_time"))?
+            .do_id;
+
+        i.select_course(course_id, do_id).await
+    }
+}

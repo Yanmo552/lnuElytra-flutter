@@ -1,39 +1,31 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../../models/grab_outcome.dart';
 import '../../../services/log_store.dart';
 import '../../../services/session.dart';
 import '../../../src/rust/third_party/lnu_elytra.dart';
 import '../../../src/rust/third_party/lnu_elytra/flutter.dart';
 
-/// Processing strategy for the keyword list.
+/// 抢课策略：并行 / 按志愿顺序
 enum GrabStrategy { parallel, sequential }
 
-/// Runtime status of a single keyword.
-enum KeywordStatus { pending, running, success, giveUp, failed }
+/// 单门预设课程的运行状态
+enum PresetStatus { pending, running, success, giveUp, failed }
 
-class _KeywordTask {
-  _KeywordTask(this.keyword, {this.teacherFilter, this.timeFilter});
-
-  final String keyword;
-  final String? teacherFilter;
-  final String? timeFilter;
-  KeywordStatus status = KeywordStatus.pending;
+class _PresetTask {
+  _PresetTask(this.name);
+  final String name;
+  PresetStatus status = PresetStatus.pending;
   String note = '';
   int attempts = 0;
-
-  bool get hasFilters =>
-      (teacherFilter != null && teacherFilter!.isNotEmpty) ||
-      (timeFilter != null && timeFilter!.isNotEmpty);
 }
 
 class _TaskNotifier extends ChangeNotifier {
   void notify() => notifyListeners();
 }
 
-/// Auto course-grabbing tab with a collapsible strategy panel.
+/// 自动抢课页：预设课程（按添加顺序 = 志愿顺序）+ 监控循环
 class AutoGrabTab extends StatefulWidget {
   const AutoGrabTab({super.key});
 
@@ -57,54 +49,51 @@ class _AutoGrabTabState extends State<AutoGrabTab>
   static final _kOutlinedStyle = OutlinedButton.styleFrom(shape: _kButtonShape);
 
   final _inputCtrl = TextEditingController();
-  final _teacherFilterCtrl = TextEditingController();
-  final _timeFilterCtrl = TextEditingController();
-  final _retryIntervalCtrl = TextEditingController();
+  final _maxSlotsCtrl = TextEditingController();
+  final _intervalCtrl = TextEditingController();
   final _taskNotifier = _TaskNotifier();
-  final List<_KeywordTask> _tasks = [];
+  final List<_PresetTask> _tasks = [];
 
   GrabStrategy _strategy = GrabStrategy.parallel;
-  int _retryIntervalMs = 100;
+  int _maxSlots = 0; // 0 = 全部预设
+  int _intervalMs = 200;
+  int _tabIndex = -1; // -1 = 自动遍历
 
   bool _running = false;
   bool _cancelRequested = false;
-  bool _strategyExpanded = true;
+  bool _optionsExpanded = true;
 
   @override
   void initState() {
     super.initState();
-    _retryIntervalCtrl.text = '$_retryIntervalMs';
+    _intervalCtrl.text = '$_intervalMs';
+    _maxSlotsCtrl.text = '0';
+    _tabIndex = session.tabIndex;
   }
 
   @override
   void dispose() {
     _inputCtrl.dispose();
-    _teacherFilterCtrl.dispose();
-    _timeFilterCtrl.dispose();
-    _retryIntervalCtrl.dispose();
+    _maxSlotsCtrl.dispose();
+    _intervalCtrl.dispose();
     _taskNotifier.dispose();
     super.dispose();
   }
 
-  void _addKeyword() {
-    final kw = _inputCtrl.text.trim();
-    if (kw.isEmpty) return;
-    if (_tasks.any((t) => t.keyword == kw)) {
+  // ---------- 预设课程管理 ----------
+
+  void _addPreset() {
+    final name = _inputCtrl.text.trim();
+    if (name.isEmpty) return;
+    if (_tasks.any((t) => t.name == name)) {
       _inputCtrl.clear();
       return;
     }
-    final tf = _teacherFilterCtrl.text.trim();
-    final st = _timeFilterCtrl.text.trim();
     setState(() {
-      _tasks.add(
-        _KeywordTask(
-          kw,
-          teacherFilter: tf.isEmpty ? null : tf,
-          timeFilter: st.isEmpty ? null : st,
-        ),
-      );
+      _tasks.add(_PresetTask(name));
       _inputCtrl.clear();
     });
+    logStore.info('已添加: $name');
   }
 
   void _removeAt(int i) {
@@ -112,209 +101,362 @@ class _AutoGrabTabState extends State<AutoGrabTab>
     setState(() => _tasks.removeAt(i));
   }
 
+  void _move(int i, int delta) {
+    if (_running) return;
+    final j = i + delta;
+    if (j < 0 || j >= _tasks.length) return;
+    setState(() {
+      final t = _tasks.removeAt(i);
+      _tasks.insert(j, t);
+    });
+  }
+
+  // ---------- 监控循环 ----------
+
   Future<void> _start() async {
     if (_tasks.isEmpty || _running) return;
+    session.tabIndex = _tabIndex;
 
     setState(() {
       _running = true;
       _cancelRequested = false;
-      _strategyExpanded = false;
       for (final t in _tasks) {
-        t.status = KeywordStatus.pending;
+        t.status = PresetStatus.pending;
         t.note = '';
         t.attempts = 0;
       }
     });
 
-    await _runLoop();
+    final strategy = _strategy;
+    final interval = _intervalMs;
+    final maxSlots = _maxSlots;
 
+    logStore.info(
+      '开始监控，间隔 ${interval}ms，预设 ${_tasks.length} 门课'
+      '，最多选 ${maxSlots == 0 ? _tasks.length : maxSlots} 门，'
+      '策略=${strategy == GrabStrategy.parallel ? "并行" : "顺序"}',
+    );
+
+    // 1) 等 init 成功（= 选课开放）
+    final open = await _waitOpen();
+    if (!open || !mounted || _cancelRequested) {
+      _finishRun();
+      return;
+    }
+
+    // 2) 抢课循环
+    while (!_cancelRequested) {
+      final remaining =
+          _tasks
+              .where(
+                (t) =>
+                    t.status != PresetStatus.success &&
+                    t.status != PresetStatus.giveUp,
+              )
+              .toList();
+      if (remaining.isEmpty) {
+        logStore.info('全部预设课程已成功/放弃');
+        break;
+      }
+
+      final targets = (maxSlots > 0 && remaining.length > maxSlots)
+          ? remaining.sublist(0, maxSlots)
+          : remaining;
+
+      if (strategy == GrabStrategy.parallel) {
+        await Future.wait(targets.map((t) => _grabOne(t)));
+      } else {
+        for (final t in targets) {
+          if (_cancelRequested) break;
+          await _grabOne(t);
+        }
+      }
+
+      if (_cancelRequested) break;
+      final still = _tasks.any(
+        (t) =>
+            t.status != PresetStatus.success &&
+            t.status != PresetStatus.giveUp,
+      );
+      if (!still) break;
+      await _delay(interval);
+    }
+
+    _finishRun();
+  }
+
+  void _finishRun() {
     if (mounted) {
       setState(() {
         _running = false;
         _cancelRequested = false;
         for (final t in _tasks) {
-          if (!_isSettled(t)) {
-            t.status = KeywordStatus.pending;
+          if (t.status != PresetStatus.success &&
+              t.status != PresetStatus.giveUp) {
+            t.status = PresetStatus.pending;
             t.note = '';
           }
         }
       });
     }
+    logStore.info('监控已停止（成功 ${_successCount()}/${_tasks.length} 门）');
   }
+
+  int _successCount() =>
+      _tasks.where((t) => t.status == PresetStatus.success).length;
 
   void _cancel() {
     if (!_running) return;
-    setState(() {
-      _cancelRequested = true;
-      for (final t in _tasks) {
-        if (!_isSettled(t)) {
-          t.status = KeywordStatus.pending;
-          t.note = '';
-        }
+    setState(() => _cancelRequested = true);
+    for (final t in _tasks) {
+      if (t.status == PresetStatus.running) {
+        t.note = '取消中...';
       }
-    });
-  }
-
-  bool _isSettled(_KeywordTask t) =>
-      t.status == KeywordStatus.success || t.status == KeywordStatus.giveUp;
-
-  Future<void> _runLoop() async {
-    while (!_cancelRequested) {
-      final remaining = _tasks.where((t) => !_isSettled(t)).toList();
-      if (remaining.isEmpty) break;
-
-      if (_strategy == GrabStrategy.parallel) {
-        await Future.wait(remaining.map((t) => _attempt(t)));
-      } else {
-        for (final t in remaining) {
-          if (_cancelRequested) break;
-          await _attempt(t);
-          while (!_cancelRequested && !_isSettled(t)) {
-            await _delay();
-            if (_cancelRequested) break;
-            await _attempt(t);
-          }
-        }
-      }
-
-      if (_cancelRequested) break;
-      final stillRemaining = _tasks.any((t) => !_isSettled(t));
-      if (!stillRemaining) break;
-      await _delay();
     }
+    _taskNotifier.notify();
   }
 
-  Future<void> _delay() async {
-    if (_retryIntervalMs <= 0) return;
-    await Future.delayed(Duration(milliseconds: _retryIntervalMs));
+  Future<bool> _waitOpen() async {
+    logStore.info('正在检测选课开放状态（init）...');
+    while (!_cancelRequested) {
+      try {
+        await session.reinit();
+        logStore.info('=== init 成功，选课已开放 ===');
+        return true;
+      } on FError catch (e) {
+        if (e.kind == FErrorKind.notyetStarted) {
+          logStore.info('选课未开放，等待开放中...');
+          await _delay(1000);
+          continue;
+        }
+        if (e.kind == FErrorKind.loginFailed ||
+            e.kind == FErrorKind.cookieError) {
+          logStore.error('登录失效，尝试自动重登...');
+          if (await session.relogin()) {
+            logStore.info('自动重登成功，继续等待开放');
+            await _delay(1000);
+            continue;
+          }
+          logStore.error('自动重登失败，停止监控');
+          return false;
+        }
+        logStore.error('init 异常: ${e.error}，继续等待');
+        await _delay(1000);
+        continue;
+      } catch (e) {
+        logStore.error('init 异常: $e，继续等待');
+        await _delay(1000);
+        continue;
+      }
+    }
+    return false;
   }
 
-  /// Match teaching classes against filter criteria.
-  ///
-  /// Prefers classes matching both teacher info (jsxx) and schedule (sksj)
-  /// filters; falls back to jxb[0] if nothing matches.
-  List<Jxb> _matchJxbs(Course course, _KeywordTask t) {
-    if (course.jxb.isEmpty) return [];
-
-    final tf = t.teacherFilter ?? '';
-    final st = t.timeFilter ?? '';
-
-    if (tf.isEmpty && st.isEmpty) return course.jxb;
-
-    final matched = course.jxb.where((jxb) {
-      final teacherOk = tf.isEmpty || jxb.jsxx.contains(tf);
-      final timeOk = st.isEmpty || jxb.sksj.contains(st);
-      return teacherOk && timeOk;
-    }).toList();
-
-    if (matched.isEmpty) return [course.jxb.first];
-    return matched;
+  Future<void> _delay(int ms) async {
+    if (ms <= 0) return;
+    await Future.delayed(Duration(milliseconds: ms));
   }
 
-  Future<void> _attempt(_KeywordTask t) async {
+  // ---------- 抢一门课 ----------
+
+  Future<void> _grabOne(_PresetTask t) async {
     if (_cancelRequested || !mounted) return;
-    _update(t, KeywordStatus.running, '查询中...');
+    _update(t, PresetStatus.running, '查询教学班...');
     t.attempts++;
 
     try {
-      final course = await session.fetchCourses(t.keyword);
+      final course = await _resolve(t.name);
+      if (course == null) {
+        _update(t, PresetStatus.failed, '未找到课程（第 ${t.attempts} 次，重试中）');
+        return;
+      }
+
+      final jxb = _pickExactJxb(course, t.name);
+      if (jxb == null) {
+        _update(t, PresetStatus.failed, '无可用教学班（第 ${t.attempts} 次，重试中）');
+        return;
+      }
+
       logStore.info(
-        'Course fetched: keyword="${t.keyword}", kchId=${course.kchId}, jxb_count=${course.jxb.length}',
+        '抢课: ${course.kcmc.isEmpty ? t.name : course.kcmc}'
+        '（${jxb.jxbmc.isEmpty ? jxb.doId : jxb.jxbmc}）',
       );
 
-      final jxbs = _matchJxbs(course, t);
-      if (jxbs.isEmpty) {
-        _update(t, KeywordStatus.running, '暂无教学班，重试中（第 ${t.attempts} 次）');
-        return;
-      }
-
-      final usedFallback =
-          t.hasFilters &&
-          jxbs.length == 1 &&
-          course.jxb.length > 1 &&
-          identical(jxbs.first, course.jxb.first);
-
-      bool succeeded = false;
-      for (final jxb in jxbs) {
-        if (_cancelRequested) return;
-        final outcome = await _tryJxbReturnOutcome(t, course, jxb);
-        if (outcome == GrabOutcome.success) {
-          succeeded = true;
-          break;
-        }
-        if (outcome == GrabOutcome.giveUp) {
-          _update(
-            t,
-            KeywordStatus.giveUp,
-            '${jxb.jsxx} - 无法选择（第 ${t.attempts} 次）',
-          );
-          return;
-        }
-      }
-      if (!succeeded && !_isSettled(t)) {
-        final label = usedFallback
-            ? '未匹配到筛选条件，回退首个教学班'
-            : '匹配 ${jxbs.length} 个教学班';
-        _update(t, KeywordStatus.running, '$label，重试中（第 ${t.attempts} 次）');
-      }
-    } on FError catch (e) {
-      logStore.error('Auto-grab error: keyword="${t.keyword}", ${e.error}');
-      if (e.kind == FErrorKind.loginFailed) {
-        logStore.error('检测到登录失效，正在退出登录...');
-        _cancelRequested = true;
-        session.logout();
-        return;
-      }
-      _update(t, KeywordStatus.failed, '错误：${e.error}（第 ${t.attempts} 次，将重试）');
-    } catch (e) {
-      logStore.error('Exception during grab: keyword="${t.keyword}", error=$e');
-      _update(t, KeywordStatus.failed, '错误：$e（第 ${t.attempts} 次，将重试）');
-    }
-  }
-
-  Future<GrabOutcome> _tryJxbReturnOutcome(
-    _KeywordTask t,
-    Course course,
-    Jxb jxb,
-  ) async {
-    try {
       final resp = await session.selectCourse(
         courseId: course.kchId,
         courseDoId: jxb.doId,
       );
-      logStore.info(
-        'SelectCourseResponse: keyword="${t.keyword}", jxbId=${jxb.jxbId}, flag=${resp.flag}, msg=${resp.msg}',
-      );
-      final outcome = classifyResponse(resp);
-      if (outcome == GrabOutcome.success) {
-        final msg = resp.flag == '1' ? '选课成功' : (resp.msg ?? '未知结果');
-        _update(t, KeywordStatus.success, '${jxb.jsxx} - $msg');
+
+      final msg = resp.msg ?? '';
+      if (resp.flag == '1') {
+        _update(t, PresetStatus.success, '✅ 选课成功！');
+        logStore.info('✅ 选课成功: ${course.kcmc.isEmpty ? t.name : course.kcmc}');
+        return;
       }
-      return outcome;
+
+      // 需要先选子教学班（如应急救护培训）
+      if (msg.contains('子教学班') || msg.contains('子班')) {
+        logStore.info('$t.name 需要选择子教学班，尝试子班选课...');
+        final ok = await _trySubclass(course, jxb, t);
+        if (ok) {
+          _update(t, PresetStatus.success, '✅ 子班选课成功！');
+          return;
+        }
+        _update(t, PresetStatus.failed, '子班选课失败（第 ${t.attempts} 次，重试中）');
+        return;
+      }
+
+      if (msg.contains('超过')) {
+        _update(t, PresetStatus.giveUp, '已达选课上限：$msg');
+        logStore.warn('$t.name 已达上限: $msg');
+        return;
+      }
+
+      _update(t, PresetStatus.failed, '$msg（第 ${t.attempts} 次，重试中）');
     } on FError catch (e) {
-      if (e.kind == FErrorKind.loginFailed) {
-        logStore.error('检测到登录失效，正在退出登录...');
-        _cancelRequested = true;
-        session.logout();
-      } else {
-        logStore.error(
-          'SelectCourse error: keyword="${t.keyword}", jxbId=${jxb.jxbId}, ${e.error}',
-        );
+      logStore.error('抢课异常: ${t.name}, ${e.error}');
+      if (e.kind == FErrorKind.loginFailed || e.kind == FErrorKind.cookieError) {
+        logStore.error('登录失效，尝试自动重登...');
+        if (await session.relogin()) {
+          _update(t, PresetStatus.failed, '已自动重登，重试中');
+        } else {
+          logStore.error('自动重登失败，停止监控');
+          _update(t, PresetStatus.failed, '登录失效，已停止');
+          _cancelRequested = true;
+        }
+        return;
       }
-      return GrabOutcome.retry;
+      _update(t, PresetStatus.failed, '错误：${e.error}（重试中）');
     } catch (e) {
-      logStore.error(
-        'SelectCourse exception: keyword="${t.keyword}", jxbId=${jxb.jxbId}, error=$e',
-      );
-      return GrabOutcome.retry;
+      logStore.error('抢课异常: ${t.name}, $e');
+      _update(t, PresetStatus.failed, '错误：$e（重试中）');
     }
   }
 
-  void _update(_KeywordTask t, KeywordStatus status, String note) {
+  /// 子教学班选课：V2（丽江专用端点）→ V1（通用）
+  Future<bool> _trySubclass(Course course, Jxb jxb, _PresetTask t) async {
+    try {
+      final r = await session.selectCourseSubclassV2(
+        jxbId: jxb.jxbId,
+        doJxbId: jxb.doId,
+        jxbzls: '1',
+      );
+      if (r.flag == '1') return true;
+      logStore.info('子班V2: ${r.msg}');
+    } catch (e) {
+      logStore.info('子班V2-err: $e');
+    }
+    try {
+      final ids = await session.fetchSubclassIds(jxb.doId);
+      if (ids.isNotEmpty) {
+        final combined = '${jxb.doId},${ids.first}';
+        final r = await session.selectCourseSubclass(
+          courseId: course.kchId,
+          courseDoId: combined,
+          kcmc: course.kcmc,
+          xkkzId: course.xkkzId,
+        );
+        if (r.flag == '1') return true;
+        logStore.info('子班V1: ${r.msg}');
+      }
+    } catch (e) {
+      logStore.info('子班V1-err: $e');
+    }
+    return false;
+  }
+
+  // ---------- 解析课程（支持多标签学校） ----------
+
+  Future<Course?> _fetchOne(String q) async {
+    try {
+      final c = await session.fetchCourses(q);
+      if (c.jxb.isNotEmpty) return c;
+    } catch (_) {}
+    return null;
+  }
+
+  String _stripSuffix(String name) =>
+      name.replaceFirst(RegExp(r'-\d{1,4}$'), '');
+
+  String? _courseNumber(String name) {
+    final m = RegExp(r'(\d{6,9})-\d{1,4}$').firstMatch(name);
+    return m?.group(1);
+  }
+
+  List<String> _candidates(String preset) {
+    final out = <String>[preset];
+    final stripped = _stripSuffix(preset);
+    if (stripped.isNotEmpty && stripped != preset) out.add(stripped);
+    final cn = _courseNumber(preset);
+    if (cn != null && !out.contains(cn)) out.add(cn);
+    return out;
+  }
+
+  Future<Course?> _resolve(String preset) async {
+    final school = session.school;
+    final candidates = _candidates(preset);
+
+    if (school == null || !school.hasTabs) {
+      for (final q in candidates) {
+        final c = await _fetchOne(q);
+        if (c != null) return c;
+      }
+      return null;
+    }
+
+    // 多标签学校
+    if (_tabIndex >= 0 && _tabIndex < school.tabs.length) {
+      try {
+        await session.switchTab(school.tabs[_tabIndex].id);
+      } catch (_) {}
+      for (final q in candidates) {
+        final c = await _fetchOne(q);
+        if (c != null) return c;
+      }
+      return null;
+    }
+
+    // 自动遍历所有标签
+    for (final tab in school.tabs) {
+      try {
+        await session.switchTab(tab.id);
+      } catch (_) {
+        continue;
+      }
+      for (final q in candidates) {
+        final c = await _fetchOne(q);
+        if (c != null) {
+          logStore.info('在标签 [${tab.name}] 找到: $preset');
+          return c;
+        }
+      }
+    }
+    return null;
+  }
+
+  Jxb? _pickExactJxb(Course course, String preset) {
+    if (course.jxb.isEmpty) return null;
+    final m = RegExp(r'-(\d{1,4})$').firstMatch(preset);
+    final suffix = m?.group(1);
+    if (suffix != null) {
+      for (final j in course.jxb) {
+        if (j.jxbmc.endsWith('-$suffix') ||
+            j.jxbmc.contains('-$suffix') ||
+            j.doId.endsWith(suffix)) {
+          return j;
+        }
+      }
+    }
+    return course.jxb.first;
+  }
+
+  void _update(_PresetTask t, PresetStatus status, String note) {
     t.status = status;
     t.note = note;
     if (mounted) _taskNotifier.notify();
   }
+
+  // ---------- UI ----------
 
   @override
   Widget build(BuildContext context) {
@@ -340,46 +482,52 @@ class _AutoGrabTabState extends State<AutoGrabTab>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AnimatedCrossFade(
-            duration: const Duration(milliseconds: 300),
-            sizeCurve: Curves.easeInOut,
-            crossFadeState: _strategyExpanded
-                ? CrossFadeState.showFirst
-                : CrossFadeState.showSecond,
-            firstChild: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildInputRow(),
-                const SizedBox(height: 12),
-                _buildFilterSection(),
-                const SizedBox(height: 16),
-                _buildStrategyPanel(),
-              ],
-            ),
-            secondChild: const SizedBox(width: double.infinity),
+          _buildInputRow(),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              IconButton(
+                onPressed: _running
+                    ? null
+                    : () => setState(
+                        () => _optionsExpanded = !_optionsExpanded,
+                      ),
+                icon: Icon(
+                  _optionsExpanded ? Icons.expand_less : Icons.expand_more,
+                ),
+                tooltip: _optionsExpanded ? '收起选项' : '展开选项',
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  '最多选 ${_maxSlots == 0 ? "全部" : _maxSlots} 门'
+                  ' · ${_strategy == GrabStrategy.parallel ? "并行" : "按志愿顺序"}'
+                  ' · 间隔 ${_intervalMs}ms'
+                  ' · ${_tabLabel()}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
           ),
-          TextButton.icon(
-            onPressed: _running
-                ? null
-                : () => setState(() => _strategyExpanded = !_strategyExpanded),
-            icon: Icon(
-              _strategyExpanded ? Icons.expand_less : Icons.expand_more,
-            ),
-            label: Text(_strategyExpanded ? '收起' : '展开'),
-          ),
+          if (_optionsExpanded) ...[
+            const SizedBox(height: 8),
+            _buildOptionsPanel(),
+          ],
           const SizedBox(height: 12),
           _buildActionButtons(),
-          if (_running)
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: Text(
-                '任务运行中',
-                style: TextStyle(color: Colors.orange, fontSize: 12),
-              ),
-            ),
         ],
       ),
     );
+  }
+
+  String _tabLabel() {
+    final school = session.school;
+    if (school == null || !school.hasTabs) return '无标签';
+    if (_tabIndex == -1) return '标签:自动遍历';
+    if (_tabIndex >= 0 && _tabIndex < school.tabs.length) {
+      return '标签:${school.tabs[_tabIndex].name}';
+    }
+    return '标签:自动遍历';
   }
 
   Widget _buildInputRow() {
@@ -390,13 +538,13 @@ class _AutoGrabTabState extends State<AutoGrabTab>
             controller: _inputCtrl,
             enabled: !_running,
             decoration: const InputDecoration(
-              labelText: '输入课程号或精确教学班',
-              hintText: '建议使用精确教学班',
+              labelText: '添加预设课程（按添加顺序 = 志愿顺序）',
+              hintText: '例：大学体育3（瑜伽）-0001 或 影视鉴赏-0007',
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.add_task),
             ),
             onSubmitted: (_) {
-              if (!_running) _addKeyword();
+              if (!_running) _addPreset();
             },
           ),
         ),
@@ -405,7 +553,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
           height: 56,
           width: 56,
           child: FilledButton(
-            onPressed: _running ? null : _addKeyword,
+            onPressed: _running ? null : _addPreset,
             style: _kAddStyle,
             child: const Icon(Icons.add),
           ),
@@ -414,117 +562,107 @@ class _AutoGrabTabState extends State<AutoGrabTab>
     );
   }
 
-  Widget _buildFilterSection() {
-    final theme = Theme.of(context);
+  Widget _buildOptionsPanel() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(
-              Icons.tune,
-              size: 14,
-              color: theme.colorScheme.onSurfaceVariant,
+            const Text('最多选(门)：'),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 90,
+              child: TextField(
+                enabled: !_running,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  hintText: '0=全部',
+                ),
+                controller: _maxSlotsCtrl,
+                onChanged: (v) {
+                  final val = int.tryParse(v);
+                  if (val != null && val >= 0) {
+                    setState(() => _maxSlots = val);
+                  }
+                },
+              ),
             ),
-            const SizedBox(width: 6),
-            Text(
-              '筛选条件',
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
+            const SizedBox(width: 16),
+            const Text('轮询间隔(ms)：'),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 90,
+              child: TextField(
+                enabled: !_running,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                controller: _intervalCtrl,
+                onChanged: (v) {
+                  final val = int.tryParse(v);
+                  if (val != null && val >= 0) {
+                    setState(() => _intervalMs = val);
+                  }
+                },
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(
-              child: TextField(
-                controller: _teacherFilterCtrl,
-                enabled: !_running,
-                decoration: const InputDecoration(
-                  labelText: '教师（jsxx）',
-                  hintText: '可选，如：张三',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                  prefixIcon: Icon(Icons.person_outline, size: 20),
-                ),
-              ),
-            ),
+            const Text('策略：'),
             const SizedBox(width: 8),
             Expanded(
-              child: TextField(
-                controller: _timeFilterCtrl,
-                enabled: !_running,
-                decoration: const InputDecoration(
-                  labelText: '时间（sksj）',
-                  hintText: '可选，如：星期四第9-10节{9-16周}',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                  prefixIcon: Icon(Icons.schedule, size: 20),
-                ),
+              child: SegmentedButton<GrabStrategy>(
+                segments: const [
+                  ButtonSegment(value: GrabStrategy.parallel, label: Text('并行')),
+                  ButtonSegment(
+                    value: GrabStrategy.sequential,
+                    label: Text('按志愿顺序'),
+                  ),
+                ],
+                selected: {_strategy},
+                onSelectionChanged: _running
+                    ? null
+                    : (s) => setState(() => _strategy = s.first),
               ),
             ),
           ],
         ),
+        if (session.school != null && session.school!.hasTabs) ...[
+          const SizedBox(height: 12),
+          _buildTabSelector(),
+        ],
       ],
     );
   }
 
-  Widget _buildStrategyPanel() {
-    return Column(
-      children: [
-        _buildKeywordStrategySelector(),
-        const SizedBox(height: 12),
-        _buildRetryIntervalInput(),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-
-  Widget _buildKeywordStrategySelector() {
+  Widget _buildTabSelector() {
+    final school = session.school!;
+    final items = <DropdownMenuItem<int>>[
+      const DropdownMenuItem(value: -1, child: Text('自动遍历所有标签')),
+      for (var i = 0; i < school.tabs.length; i++)
+        DropdownMenuItem(value: i, child: Text(school.tabs[i].name)),
+    ];
     return Row(
       children: [
-        const Text('课程策略：'),
+        const Text('目标标签：'),
         const SizedBox(width: 8),
         Expanded(
-          child: SegmentedButton<GrabStrategy>(
-            segments: const [
-              ButtonSegment(value: GrabStrategy.parallel, label: Text('并行')),
-              ButtonSegment(value: GrabStrategy.sequential, label: Text('按顺序')),
-            ],
-            selected: {_strategy},
-            onSelectionChanged: _running
-                ? null
-                : (s) => setState(() => _strategy = s.first),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRetryIntervalInput() {
-    return Row(
-      children: [
-        const Text('重试间隔(ms)：'),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 120,
-          child: TextField(
-            enabled: !_running,
-            keyboardType: TextInputType.number,
+          child: DropdownButtonFormField<int>(
+            initialValue: _tabIndex,
+            isDense: true,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
-              isDense: true,
             ),
-            controller: _retryIntervalCtrl,
-            onChanged: (v) {
-              final val = int.tryParse(v);
-              if (val != null && val >= 0) {
-                setState(() => _retryIntervalMs = val);
-              }
-            },
+            items: items,
+            onChanged: _running
+                ? null
+                : (v) => setState(() => _tabIndex = v ?? -1),
           ),
         ),
       ],
@@ -547,7 +685,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
                 : const Icon(Icons.play_arrow),
             label: Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(_running ? '抢课中...' : '启动任务'),
+              child: Text(_running ? '监控中...' : '开始监控'),
             ),
           ),
         ),
@@ -559,7 +697,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
             icon: const Icon(Icons.stop),
             label: Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(_cancelRequested ? '停止中...' : '取消任务'),
+              child: Text('停止'),
             ),
           ),
         ),
@@ -569,82 +707,80 @@ class _AutoGrabTabState extends State<AutoGrabTab>
 
   Widget _buildList() {
     if (_tasks.isEmpty) {
-      return const Center(
-        child: Text('添加一个或多个关键字，然后启动任务', style: TextStyle(color: Colors.grey)),
+      return Center(
+        child: Text(
+          '暂无预设课程\n请先添加课程，按志愿顺序排列',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
+    return ListView.builder(
       itemCount: _tasks.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, i) => _buildTaskTile(i, _tasks[i]),
-    );
-  }
-
-  Widget _buildTaskTile(int i, _KeywordTask t) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: _buildStatusIcon(t.status),
-      title: Text(t.keyword),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (t.hasFilters) _buildFilterChips(t),
-          if (t.note.isNotEmpty) Text(t.note),
-        ],
-      ),
-      trailing: _running
-          ? null
-          : IconButton(
-              icon: const Icon(Icons.close, size: 18),
-              tooltip: '移除',
-              onPressed: () => _removeAt(i),
-            ),
-    );
-  }
-
-  Widget _buildFilterChips(_KeywordTask t) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Wrap(
-        spacing: 4,
-        runSpacing: 2,
-        children: [
-          if (t.teacherFilter != null)
-            _chip(Icons.person_outline, t.teacherFilter!),
-          if (t.timeFilter != null) _chip(Icons.schedule, t.timeFilter!),
-        ],
-      ),
-    );
-  }
-
-  Widget _chip(IconData icon, String label) {
-    return Chip(
-      avatar: Icon(icon, size: 14),
-      label: Text(label, style: const TextStyle(fontSize: 11)),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      visualDensity: VisualDensity.compact,
-      padding: EdgeInsets.zero,
-      labelPadding: const EdgeInsets.only(right: 4),
-    );
-  }
-
-  Widget _buildStatusIcon(KeywordStatus s) {
-    switch (s) {
-      case KeywordStatus.pending:
-        return const Icon(Icons.schedule, color: Colors.grey);
-      case KeywordStatus.running:
-        return const SizedBox(
-          height: 20,
-          width: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
+      itemBuilder: (context, i) {
+        final t = _tasks[i];
+        return ListTile(
+          dense: true,
+          leading: CircleAvatar(
+            radius: 14,
+            child: Text('${i + 1}'),
+          ),
+          title: Text(t.name),
+          subtitle: Text(
+            t.note.isEmpty ? _statusText(t.status) : t.note,
+            style: TextStyle(color: _statusColor(t.status)),
+          ),
+          trailing: _running
+              ? Icon(
+                  _statusIcon(t.status),
+                  color: _statusColor(t.status),
+                  size: 20,
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_upward, size: 18),
+                      onPressed: () => _move(i, -1),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.arrow_downward, size: 18),
+                      onPressed: () => _move(i, 1),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: () => _removeAt(i),
+                    ),
+                  ],
+                ),
         );
-      case KeywordStatus.success:
-        return const Icon(Icons.check_circle, color: Colors.green);
-      case KeywordStatus.giveUp:
-        return const Icon(Icons.do_not_disturb_on, color: Colors.redAccent);
-      case KeywordStatus.failed:
-        return const Icon(Icons.error_outline, color: Colors.orange);
-    }
+      },
+    );
   }
+
+  String _statusText(PresetStatus s) => switch (s) {
+        PresetStatus.pending => '等待',
+        PresetStatus.running => '抢课中...',
+        PresetStatus.success => '✅ 已成功',
+        PresetStatus.giveUp => '已放弃',
+        PresetStatus.failed => '重试中',
+      };
+
+  Color _statusColor(PresetStatus s) => switch (s) {
+        PresetStatus.success => Colors.green,
+        PresetStatus.giveUp => Colors.orange,
+        PresetStatus.running => Colors.blue,
+        PresetStatus.failed => Colors.redAccent,
+        PresetStatus.pending => Colors.grey,
+      };
+
+  IconData _statusIcon(PresetStatus s) => switch (s) {
+        PresetStatus.success => Icons.check_circle,
+        PresetStatus.giveUp => Icons.flag,
+        PresetStatus.running => Icons.autorenew,
+        PresetStatus.failed => Icons.error_outline,
+        PresetStatus.pending => Icons.schedule,
+      };
 }

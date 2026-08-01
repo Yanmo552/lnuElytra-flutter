@@ -15,7 +15,11 @@ abstract class FClient implements RustOpaqueInterface {
 
   Future<void> clearCookie();
 
+  Future<String?> cookies();
+
   Future<Course> fetchCourses({required String q});
+
+  Future<List<String>> fetchSubclassIds({required String doJxbId});
 
   Future<void> init();
 
@@ -35,6 +39,21 @@ abstract class FClient implements RustOpaqueInterface {
     required String courseId,
     required String courseDoId,
   });
+
+  Future<SelectCourseResponse> selectCourseSubclass({
+    required String courseId,
+    required String courseDoId,
+    required String kcmc,
+    required String xkkzId,
+  });
+
+  Future<SelectCourseResponse> selectCourseSubclassV2({
+    required String jxbId,
+    required String doJxbId,
+    required String jxbzls,
+  });
+
+  Future<void> switchTab({required String xkkzId});
 
   Future<String?> ver();
 }
@@ -61,6 +80,8 @@ enum FErrorKind {
   loginFailed,
   notyetStarted,
   jxbNotFound,
+  invalidXhId,
+  missingField,
   missing,
   rsa,
   reqwest,

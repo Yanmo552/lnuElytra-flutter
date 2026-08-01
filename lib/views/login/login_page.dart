@@ -1,14 +1,10 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
-import '../../models/endpoint.dart';
+import '../../models/school.dart';
 import '../../services/session.dart';
 import '../../src/rust/third_party/lnu_elytra/flutter.dart';
 
-/// Login page with an endpoint selector.
-///
-/// Collects credentials, builds a new client for the selected endpoint and
-/// logs in, then attaches it to the global [session] upon confirmation.
-/// No data is persisted.
+/// 登录页：选择学校 + 账密/Cookie 登录
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -28,8 +24,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _busy = false;
   String? _error;
 
-  // Currently selected endpoint
-  Endpoint _selectedEndpoint = kPresetEndpoints.first;
+  School _selectedSchool = kPresetSchools.first;
 
   @override
   void dispose() {
@@ -48,22 +43,18 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final isPassword = _mode == _LoginMode.password;
 
-      // Validate input — username is only required for password login.
       if (isPassword && _userCtrl.text.trim().isEmpty) {
         throw const _Invalid('请输入账号');
       }
-      if (isPassword) {
-        if (_passCtrl.text.isEmpty) {
-          throw const _Invalid('请输入密码');
-        }
-      } else {
-        if (_cookieCtrl.text.trim().isEmpty) {
-          throw const _Invalid('请输入 Cookie');
-        }
+      if (isPassword && _passCtrl.text.isEmpty) {
+        throw const _Invalid('请输入密码');
+      }
+      if (!isPassword && _cookieCtrl.text.trim().isEmpty) {
+        throw const _Invalid('请输入 Cookie');
       }
 
-      // Build a new client for the selected endpoint and log in.
-      final client = await FClient.newWithBase(backend: _selectedEndpoint.url);
+      final server = _selectedSchool.server;
+      final client = await FClient.newWithBase(backend: server);
 
       if (isPassword) {
         await client.login(
@@ -74,23 +65,24 @@ class _LoginPageState extends State<LoginPage> {
         await client.insertCookies(cookies: _cookieCtrl.text.trim());
       }
 
-      // Verify and retrieve account info
       final accountInfo = await client.checkLogin();
       if (!mounted) return;
 
       final confirmed = await _confirmAccount(accountInfo);
-
       if (confirmed == true) {
-        // Attach the client to the global session.
-        // For cookie login, the username comes from the server response.
         final username = isPassword ? _userCtrl.text.trim() : accountInfo;
-        session.attachClient(username, client);
+        session.attachClient(username, client, school: _selectedSchool);
+
+        // 保存 Cookie 供会话失效时自动重登
+        try {
+          final ck = await client.cookies();
+          if (ck != null && ck.isNotEmpty) session.savedCookie = ck;
+        } catch (_) {}
 
         if (mounted) {
           setState(() => _error = null);
         }
       } else {
-        // User cancelled
         if (mounted) {
           setState(() => _error = '已取消登录');
         }
@@ -128,7 +120,14 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   String _describe(FError e) {
-    return '错误（${e.kind}）：${e.error}';
+    final kind = switch (e.kind) {
+      FErrorKind.loginFailed => '登录失败',
+      FErrorKind.notyetStarted => '选课未开放',
+      FErrorKind.cookieError => 'Cookie 无效',
+      FErrorKind.reqwest => '网络错误',
+      _ => '${e.kind}',
+    };
+    return '错误（$kind）：${e.error}';
   }
 
   @override
@@ -142,18 +141,15 @@ class _LoginPageState extends State<LoginPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Endpoint selector
               Align(
                 alignment: Alignment.centerLeft,
-                child: _EndpointSelector(
-                  selectedEndpoint: _selectedEndpoint,
-                  onChanged: (ep) => setState(() => _selectedEndpoint = ep),
+                child: _SchoolSelector(
+                  selectedSchool: _selectedSchool,
+                  onChanged: (s) => setState(() => _selectedSchool = s),
                   busy: _busy,
                 ),
               ),
-              const SizedBox(height: 12),
-
-              // Login mode selector
+              const SizedBox(height: 16),
               SegmentedButton<_LoginMode>(
                 segments: const [
                   ButtonSegment(
@@ -173,8 +169,6 @@ class _LoginPageState extends State<LoginPage> {
                     : (s) => setState(() => _mode = s.first),
               ),
               const SizedBox(height: 16),
-
-              // Input fields
               if (_mode == _LoginMode.password) ...[
                 TextField(
                   controller: _userCtrl,
@@ -204,17 +198,15 @@ class _LoginPageState extends State<LoginPage> {
                 TextField(
                   controller: _cookieCtrl,
                   enabled: !_busy,
-                  maxLines: 1,
+                  maxLines: 3,
                   decoration: const InputDecoration(
                     labelText: 'Cookie',
-                    hintText: 'JSESSIONID=...; X-LB=...',
+                    hintText: 'JSESSIONID=...; zstack_cookie=...',
                     border: OutlineInputBorder(),
                   ),
                 ),
               ],
               const SizedBox(height: 12),
-
-              // Error message
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -225,8 +217,6 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ),
-
-              // Login button
               FilledButton(
                 onPressed: _busy ? null : _submit,
                 child: Padding(
@@ -253,42 +243,42 @@ class _Invalid implements Exception {
   const _Invalid(this.message);
 }
 
-/// Endpoint selector: tapping opens a preset list with a custom entry, showing the actual URL.
-class _EndpointSelector extends StatelessWidget {
-  const _EndpointSelector({
-    required this.selectedEndpoint,
+/// 学校选择器：预设学校列表 + 自定义入口
+class _SchoolSelector extends StatelessWidget {
+  const _SchoolSelector({
+    required this.selectedSchool,
     required this.onChanged,
     required this.busy,
   });
 
-  final Endpoint selectedEndpoint;
-  final ValueChanged<Endpoint> onChanged;
+  final School selectedSchool;
+  final ValueChanged<School> onChanged;
   final bool busy;
 
   Future<void> _pick(BuildContext context) async {
-    final selected = await showMenu<Endpoint?>(
+    final selected = await showMenu<School?>(
       context: context,
       position: _menuPosition(context),
       items: [
-        for (final ep in kPresetEndpoints)
-          PopupMenuItem<Endpoint?>(
-            value: ep,
+        for (final s in kPresetSchools)
+          PopupMenuItem<School?>(
+            value: s,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: _PresetRow(
-              label: ep.label,
-              url: ep.url,
-              selected: ep.url == selectedEndpoint.url,
+            child: _SchoolRow(
+              name: s.name,
+              server: s.server,
+              selected: s.server == selectedSchool.server,
             ),
           ),
         const PopupMenuDivider(),
-        const PopupMenuItem<Endpoint?>(
+        const PopupMenuItem<School?>(
           value: null,
           padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Row(
             children: [
               Icon(Icons.edit_outlined, size: 18),
               SizedBox(width: 12),
-              Text('自定义…'),
+              Text('自定义学校…'),
             ],
           ),
         ),
@@ -317,23 +307,42 @@ class _EndpointSelector extends StatelessWidget {
     );
   }
 
-  Future<Endpoint?> _showCustomDialog(BuildContext context) async {
-    final controller = TextEditingController(text: selectedEndpoint.url);
+  /// 自定义学校：服务器地址 + 可选标签（每行 标签名=xkkz_id）
+  Future<School?> _showCustomDialog(BuildContext context) async {
+    final urlCtrl = TextEditingController(text: selectedSchool.server);
+    final tabsCtrl = TextEditingController();
     try {
       final url = await showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('自定义地址'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            keyboardType: TextInputType.url,
-            decoration: const InputDecoration(
-              labelText: '服务器地址',
-              hintText: 'http://jw.lingnan.edu.cn',
-              border: OutlineInputBorder(),
+          title: const Text('自定义学校'),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: urlCtrl,
+                  autofocus: true,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: '服务器地址',
+                    hintText: 'http://jw.lingnan.edu.cn 或 .../jwglxt',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: tabsCtrl,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    labelText: '标签页（可选，每行：中文名=xkkz_id）',
+                    hintText: '例：通识选修课=54FB211AA25206F3E06370D2A8C08E99\n留空表示无需切换标签',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
             ),
-            onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
           ),
           actions: [
             TextButton(
@@ -341,7 +350,7 @@ class _EndpointSelector extends StatelessWidget {
               child: const Text('取消'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              onPressed: () => Navigator.pop(ctx, urlCtrl.text.trim()),
               child: const Text('确认'),
             ),
           ],
@@ -349,9 +358,20 @@ class _EndpointSelector extends StatelessWidget {
       );
 
       if (url == null || url.isEmpty) return null;
-      return Endpoint('自定义', url);
+
+      final tabs = <SchoolTab>[];
+      for (final line in tabsCtrl.text.split('\n')) {
+        final s = line.trim();
+        if (s.isEmpty) continue;
+        final eq = s.indexOf('=');
+        if (eq > 0 && eq < s.length - 1) {
+          tabs.add(SchoolTab(s.substring(eq + 1).trim(), s.substring(0, eq).trim()));
+        }
+      }
+      return customSchool(url, tabs: tabs);
     } finally {
-      controller.dispose();
+      urlCtrl.dispose();
+      tabsCtrl.dispose();
     }
   }
 
@@ -360,13 +380,13 @@ class _EndpointSelector extends StatelessWidget {
     final theme = Theme.of(context);
     return TextButton.icon(
       onPressed: busy ? null : () => _pick(context),
-      icon: const Icon(Icons.dns_outlined, size: 16),
+      icon: const Icon(Icons.school_outlined, size: 16),
       label: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Flexible(
             child: Text(
-              '正在访问：${selectedEndpoint.url}',
+              '${selectedSchool.name} · ${selectedSchool.server}',
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall,
             ),
@@ -378,16 +398,16 @@ class _EndpointSelector extends StatelessWidget {
   }
 }
 
-/// Preset row: displays the label and actual URL.
-class _PresetRow extends StatelessWidget {
-  const _PresetRow({
-    required this.label,
-    required this.url,
+/// 学校行：显示名称和服务器地址
+class _SchoolRow extends StatelessWidget {
+  const _SchoolRow({
+    required this.name,
+    required this.server,
     required this.selected,
   });
 
-  final String label;
-  final String url;
+  final String name;
+  final String server;
   final bool selected;
 
   @override
@@ -401,20 +421,17 @@ class _PresetRow extends StatelessWidget {
           color: selected ? theme.colorScheme.primary : null,
         ),
         const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(label),
-              Text(
-                url,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(name),
+            Text(
+              server,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ],
     );

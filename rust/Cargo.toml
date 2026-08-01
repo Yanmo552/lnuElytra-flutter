@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "rust_lib_lnu_elytra"
 version = "0.1.0"
 edition = "2024"
@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "staticlib"]
 [dependencies]
 flutter_rust_bridge = "=2.13.0-beta.5"
-lnu-elytra = { version = "0.0.10", features = [
+lnu-elytra = { path = "core", features = [
     "__flutter",
     "reqwest_cookie_store",
     "tracing",
@@ -25,3 +25,4 @@ rustls-platform-verifier = "0.7.0"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+

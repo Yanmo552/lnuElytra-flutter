@@ -8,13 +8,13 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `level_to_i32`, `sink_cell`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `DartSinkLayer`, `MessageVisitor`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `on_event`, `record_debug`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `on_event`, `record_debug`, `record_str`
 
 /// Opens a stream from Rust `tracing` events to Dart.
 ///
 /// The tracing subscriber is installed on the first call; subsequent calls only replace the active sink.
 /// The subscriber captures all levels (TRACE..ERROR); level filtering is done on the Dart side
-/// so that users can adjust it in real time.
+/// so users can adjust it in real time.
 Stream<LogEntry> createLogStream() =>
     RustLib.instance.api.crateApiLoggingCreateLogStream();
 
@@ -29,7 +29,7 @@ class LogEntry {
   /// Event source (typically the module path).
   final String target;
 
-  /// The rendered message (the `message` field and other attached fields).
+  /// Rendered message (the `message` field plus any additional fields).
   final String message;
 
   const LogEntry({
