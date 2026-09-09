@@ -1,8 +1,9 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../../../services/log_store.dart';
+import '../../../services/preset_store.dart';
 import '../../../services/session.dart';
 import '../../../src/rust/third_party/lnu_elytra.dart';
 import '../../../src/rust/third_party/lnu_elytra/flutter.dart';
@@ -66,9 +67,17 @@ class _AutoGrabTabState extends State<AutoGrabTab>
   @override
   void initState() {
     super.initState();
+    for (final name in presetStore.courses) {
+      _tasks.add(_PresetTask(name));
+    }
+    _maxSlots = presetStore.maxSlots;
+    _intervalMs = presetStore.intervalMs;
+    _strategy = presetStore.parallel
+        ? GrabStrategy.parallel
+        : GrabStrategy.sequential;
+    _tabIndex = presetStore.tabIndex;
     _intervalCtrl.text = '$_intervalMs';
-    _maxSlotsCtrl.text = '0';
-    _tabIndex = session.tabIndex;
+    _maxSlotsCtrl.text = '$_maxSlots';
   }
 
   @override
@@ -93,12 +102,14 @@ class _AutoGrabTabState extends State<AutoGrabTab>
       _tasks.add(_PresetTask(name));
       _inputCtrl.clear();
     });
+    presetStore.addCourse(name);
     logStore.info('已添加: $name');
   }
 
   void _removeAt(int i) {
     if (_running) return;
     setState(() => _tasks.removeAt(i));
+    presetStore.removeCourseAt(i);
   }
 
   void _move(int i, int delta) {
@@ -109,6 +120,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
       final t = _tasks.removeAt(i);
       _tasks.insert(j, t);
     });
+    presetStore.moveCourse(i, j);
   }
 
   // ---------- 监控循环 ----------
@@ -116,6 +128,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
   Future<void> _start() async {
     if (_tasks.isEmpty || _running) return;
     session.tabIndex = _tabIndex;
+    presetStore.setTabIndex(_tabIndex);
 
     setState(() {
       _running = true;
@@ -584,6 +597,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
                   final val = int.tryParse(v);
                   if (val != null && val >= 0) {
                     setState(() => _maxSlots = val);
+                    presetStore.setMaxSlots(val);
                   }
                 },
               ),
@@ -605,6 +619,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
                   final val = int.tryParse(v);
                   if (val != null && val >= 0) {
                     setState(() => _intervalMs = val);
+                    presetStore.setIntervalMs(val);
                   }
                 },
               ),
@@ -628,7 +643,12 @@ class _AutoGrabTabState extends State<AutoGrabTab>
                 selected: {_strategy},
                 onSelectionChanged: _running
                     ? null
-                    : (s) => setState(() => _strategy = s.first),
+                    : (s) {
+                        setState(() => _strategy = s.first);
+                        presetStore.setParallel(
+                          s.first == GrabStrategy.parallel,
+                        );
+                      },
               ),
             ),
           ],
@@ -662,7 +682,11 @@ class _AutoGrabTabState extends State<AutoGrabTab>
             items: items,
             onChanged: _running
                 ? null
-                : (v) => setState(() => _tabIndex = v ?? -1),
+                : (v) {
+                    setState(() => _tabIndex = v ?? -1);
+                    presetStore.setTabIndex(v ?? -1);
+                    session.tabIndex = v ?? -1;
+                  },
           ),
         ),
       ],
