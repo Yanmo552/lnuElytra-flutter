@@ -195,6 +195,9 @@ class _LoginPageState extends State<LoginPage> {
       toaster.error('没有解析到有效行，格式：学号<TAB>密码<TAB>课程1,课程2');
       return;
     }
+    // 解析预览：让用户确认学号/课程对应关系无误后再启动
+    final confirmed = await _confirmBatch(rows);
+    if (confirmed != true) return;
     final defaultServer = serverCtrl.text.trim();
     final intervalMs = int.tryParse(intervalCtrl.text.trim()) ?? 200;
     final maxSlots = int.tryParse(maxCtrl.text.trim()) ?? 0;
@@ -244,6 +247,41 @@ class _LoginPageState extends State<LoginPage> {
     } else {
       toaster.error('窗口启动失败，请检查 exe 路径权限');
     }
+  }
+
+  /// 解析预览确认框：列出每个账号解析出的课程（最多显示前 8 个）
+  Future<bool?> _confirmBatch(List<Map<String, String>> rows) {
+    const maxShow = 8;
+    final preview = rows
+        .take(maxShow)
+        .map((r) => '${r['username']} → ${r['courses']}')
+        .join('\n');
+    final more = rows.length > maxShow ? '\n... 共 ${rows.length} 个账号' : '';
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text('确认解析结果（${rows.length} 个账号）'),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              '$preview$more\n\n课程按志愿顺序排列，确认无误后启动。',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确认启动'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 逐个验证登录，弹窗显示进度；可登录的行放进 [valid]，失败学号放进 [failed]

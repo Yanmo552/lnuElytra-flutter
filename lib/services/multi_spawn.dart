@@ -80,7 +80,45 @@ class MultiSpawn {
   /// 不带表头时按位置解析：第1列学号、第2列密码、其后非 URL/标签的列为课程。
   /// 每行格式: 学号<TAB>密码<TAB>课程1,课程2[<TAB>服务器<TAB>标签]
   static List<Map<String, String>> parseRows(String text) {
+    // Markdown 表格（| a | b |）也支持：先转成 TSV
+    final firstLine = text.split(RegExp(r'[\r\n]+')).firstWhere(
+      (l) => l.trim().isNotEmpty,
+      orElse: () => '',
+    );
+    if (firstLine.trim().startsWith('|')) {
+      final sb = StringBuffer();
+      for (final line in text.split(RegExp(r'[\r\n]+'))) {
+        final t = line.trim();
+        if (t.isEmpty) continue;
+        if (!t.startsWith('|') || !t.endsWith('|')) continue;
+        final inner = t.substring(1, t.length - 1);
+        // 跳过分隔行（|---|----|）
+        if (RegExp(r'^[\s|:\-]+$').hasMatch(inner)) continue;
+        final cells = inner.split('|').map((c) => c.trim()).toList();
+        sb.writeln(cells.join('\t'));
+      }
+      text = sb.toString();
+    }
     var grid = _tsvParse(text);
+    // 安全网：有些来源（非 Excel 剪贴板）多行单元格不带引号，
+    // 会把一行拆成"续行"（首列为空）。把续行合并回上一行的最后一个单元格。
+    final fixed = <List<String>>[];
+    for (final cols in grid) {
+      if (cols.isEmpty || cols.every((c) => c.trim().isEmpty)) {
+        fixed.add(cols);
+        continue;
+      }
+      if (cols[0].trim().isEmpty && fixed.isNotEmpty) {
+        final prev = fixed.last;
+        if (prev.isNotEmpty) {
+          prev[prev.length - 1] = '${prev.last}\n${cols[0]}';
+          if (cols.length > 1) prev.addAll(cols.sublist(1));
+          continue;
+        }
+      }
+      fixed.add(cols);
+    }
+    grid = fixed;
     for (var i = 0; i < grid.length; i++) {
       var cols = grid[i];
       if (cols.length < 3) {
@@ -101,10 +139,10 @@ class MultiSpawn {
     if (hasHeader) {
       for (var i = 0; i < header.length; i++) {
         final h = header[i].toLowerCase();
-        if (h.contains('学号') || h.contains('账号') || h.contains('user') || h.contains('id')) {
-          userCol = i;
-        } else if (h.contains('密码') || h.contains('pass')) {
+        if (h.contains('密码') || h.contains('pass')) {
           pwCol = i;
+        } else if (h.contains('学号') || h.contains('账号') || h.contains('用户名') || h.contains('user')) {
+          userCol = i;
         } else if (h.contains('志愿') || h.contains('课程') || h.contains('course')) {
           courseCols.add(i);
         } else if (h.contains('服务器') || h.contains('server')) {
@@ -263,9 +301,8 @@ class MultiSpawn {
   static bool _looksLikeHeader(List<String> cols) {
     if (cols.isEmpty) return false;
     final first = cols[0].toLowerCase();
-    final joined = cols.join(' ').toLowerCase();
     return (first.contains('学号') || first.contains('账号') || first.contains('用户名')) ||
-        (joined.contains('密码') && (joined.contains('志愿') || joined.contains('课程')));
+        first.contains('user') || first.contains('username');
   }
 
   static bool _isKnownTab(String s) {

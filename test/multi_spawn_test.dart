@@ -56,4 +56,45 @@ void main() {
     expect(rows.first['username'], '202615504223');
     expect(rows.first['courses'], '77102601-0166,77102601-0161');
   });
+
+  test('说明行（含"账号密码""课程号"字样）不会被误认为表头', () {
+    final text = [
+      '演示不要填\t大家不要填错了，确认自己的账号密码正确和所选的课程号正确，出错了，没办法的呢\t\t\t',
+      '202602164129\t145746\t77102601-88\t77102601-0101\t\t俗人\tok',
+      '202603664120\t20080201srkl\t77102601-69\t77102601-62\t77102601-63\t\t',
+    ].join('\n');
+    final rows = MultiSpawn.parseRows(text);
+    expect(rows.length, 2);
+    final a = rows.firstWhere((r) => r['username'] == '202602164129');
+    expect(a['password'], '145746');
+    expect(a['courses']!.startsWith('77102601-88,77102601-0101'), true);
+    final b = rows.firstWhere((r) => r['username'] == '202603664120');
+    expect(b['courses'], '77102601-69,77102601-62,77102601-63');
+  });
+
+  test('不带引号的多行单元格（首列为空的续行）合并回上一行', () {
+    final text = [
+      '学号\t密码\t志愿一\t志愿二\t志愿三\t微信名',
+      '202615504223\tRo061014yy\t77102601-0166\n\t77102601-0161\t77102601-0163\t111瑜',
+    ].join('\n');
+    final rows = MultiSpawn.parseRows(text);
+    expect(rows.length, 1);
+    expect(rows.first['username'], '202615504223');
+    expect(rows.first['courses'], '77102601-0166,77102601-0161,77102601-0163');
+  });
+
+  test('Markdown 表格（| a | b |）也能解析', () {
+    final text = [
+      '| 学号 | 密码 | 志愿一 | 志愿二 |',
+      '| --- | --- | --- | --- |',
+      '| 202603114227 | 200711189523Zz@ | 77102601-74 | 77102601-75 |',
+      '| 202615504214 | Lzq1203717. | 77102601-0163 | 77102601-0166 |',
+    ].join('\n');
+    final rows = MultiSpawn.parseRows(text);
+    expect(rows.length, 2);
+    expect(rows[0]['username'], '202603114227');
+    expect(rows[0]['courses'], '77102601-74,77102601-75');
+    expect(rows[1]['username'], '202615504214');
+    expect(rows[1]['courses'], '77102601-0163,77102601-0166');
+  });
 }
