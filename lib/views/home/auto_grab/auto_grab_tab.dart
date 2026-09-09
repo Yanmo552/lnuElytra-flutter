@@ -68,9 +68,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
   @override
   void initState() {
     super.initState();
-    for (final name in presetStore.courses) {
-      _tasks.add(_PresetTask(name));
-    }
+    _syncTasksFromStore();
     _maxSlots = presetStore.maxSlots;
     _intervalMs = presetStore.intervalMs;
     _strategy = presetStore.parallel
@@ -80,8 +78,37 @@ class _AutoGrabTabState extends State<AutoGrabTab>
     _intervalCtrl.text = '$_intervalMs';
     _maxSlotsCtrl.text = '$_maxSlots';
 
-    // 子窗口模式（--auto）：登录完成后自动开始监控
-    if (autoRunPending.value && presetStore.courses.isNotEmpty) {
+    // 子窗口模式（--auto）：登录可能在工作台挂载之后才完成，
+    // 监听预设/自动启动标志的变化，随时补课并自动开始监控。
+    presetStore.addListener(_onPresetsChanged);
+    autoRunPending.addListener(_onAutoRunChanged);
+    _maybeAutoStart();
+  }
+
+  @override
+  void dispose() {
+    presetStore.removeListener(_onPresetsChanged);
+    autoRunPending.removeListener(_onAutoRunChanged);
+    _inputCtrl.dispose();
+    _maxSlotsCtrl.dispose();
+    _intervalCtrl.dispose();
+    _taskNotifier.dispose();
+    super.dispose();
+  }
+
+  /// 预设课程变化（子窗口自动登录写入、或用户手动增删）时同步任务列表
+  void _onPresetsChanged() {
+    _syncTasksFromStore();
+    _maybeAutoStart();
+  }
+
+  void _onAutoRunChanged() {
+    _maybeAutoStart();
+  }
+
+  /// 子窗口模式：登录完成 + 有预设 + 未运行 → 自动开始监控
+  void _maybeAutoStart() {
+    if (autoRunPending.value && presetStore.courses.isNotEmpty && !_running) {
       autoRunPending.value = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && !_running) _start();
@@ -89,13 +116,17 @@ class _AutoGrabTabState extends State<AutoGrabTab>
     }
   }
 
-  @override
-  void dispose() {
-    _inputCtrl.dispose();
-    _maxSlotsCtrl.dispose();
-    _intervalCtrl.dispose();
-    _taskNotifier.dispose();
-    super.dispose();
+  /// 把 presetStore 里的课程同步到界面任务列表（幂等，运行中不动）
+  void _syncTasksFromStore() {
+    if (_running) return;
+    final names = presetStore.courses;
+    _tasks.removeWhere((t) => !names.contains(t.name));
+    for (final n in names) {
+      if (!_tasks.any((t) => t.name == n)) {
+        _tasks.add(_PresetTask(n));
+      }
+    }
+    if (mounted) setState(() {});
   }
 
   // ---------- 预设课程管理 ----------

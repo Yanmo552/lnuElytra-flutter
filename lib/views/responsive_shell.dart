@@ -50,12 +50,8 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
       await client.login(username: req.username, password: req.password);
       await client.checkLogin();
 
-      session.attachClient(req.username, client, school: school);
-      try {
-        final ck = await client.cookies();
-        if (ck != null && ck.isNotEmpty) session.savedCookie = ck;
-      } catch (_) {}
-
+      // 先写入预设和自动启动标志，再切换到工作台，
+      // 否则工作台挂载时可能读到一个空列表（竞态：登录后页面先挂载，课程后写入）
       final tabIdx = _resolveTabIndex(school, req.tab);
       presetStore.setTabIndex(tabIdx);
       session.tabIndex = tabIdx;
@@ -65,13 +61,19 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
       for (final c in req.courses) {
         presetStore.addCourse(c);
       }
-
-      logStore.info('自动登录成功: ${req.username}，预设 ${req.courses.length} 门课');
       if (req.autoRun) {
         autoRunPending.value = true;
       } else {
         logStore.info('启动模式: 仅填好预设，不自动开始');
       }
+
+      session.attachClient(req.username, client, school: school);
+      try {
+        final ck = await client.cookies();
+        if (ck != null && ck.isNotEmpty) session.savedCookie = ck;
+      } catch (_) {}
+
+      logStore.info('自动登录成功: ${req.username}，预设 ${req.courses.length} 门课');
     } catch (e) {
       logStore.error('自动登录失败: ' + req.username + ', $e');
       if (mounted) toaster.error('自动登录失败: $e');
