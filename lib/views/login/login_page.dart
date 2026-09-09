@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/school.dart';
@@ -47,19 +50,63 @@ class _LoginPageState extends State<LoginPage> {
     var parallel = true;
     var autoRun = true;
     var validateFirst = true;
+    var importStatus = '选择 Excel 文件导入，或直接粘贴表格文本（每行: 学号<TAB>密码<TAB>课程1,课程2）';
     final ok = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('批量多开'),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('每行一个账号，从 Excel 复制后直接粘贴：'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('批量多开'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.upload_file, size: 18),
+                        label: const Text('选择 Excel 文件'),
+                        onPressed: () async {
+                          try {
+                            final result = await FilePicker.platform.pickFiles(
+                              type: FileType.custom,
+                              allowedExtensions: const ['xlsx'],
+                              dialogTitle: '选择抢课表格（.xlsx）',
+                            );
+                            final path = result?.files.single.path;
+                            if (path == null) return;
+                            final bytes = await File(path).readAsBytes();
+                            final parsed = MultiSpawn.parseXlsxBytes(bytes);
+                            if (parsed.isEmpty) {
+                              importStatus = '文件里没有解析到有效账号（需要学号/密码/课程列）';
+                            } else {
+                              ctrl.text = parsed
+                                  .map((r) =>
+                                      '${r['username']}\t${r['password']}\t${r['courses']}')
+                                  .join('\n');
+                              importStatus = '已导入 ${parsed.length} 个账号（下方可编辑）';
+                            }
+                          } catch (e) {
+                            importStatus = '读取失败: $e';
+                          }
+                          setDialogState(() {});
+                        },
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          importStatus,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(ctx).colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: 8),
                 TextField(
                   controller: ctrl,
@@ -186,6 +233,7 @@ class _LoginPageState extends State<LoginPage> {
             child: const Text('启动窗口'),
           ),
         ],
+        ),
       ),
     );
     if (ok != true) return;

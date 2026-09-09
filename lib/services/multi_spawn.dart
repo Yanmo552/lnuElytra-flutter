@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:spreadsheet_decoder/spreadsheet_decoder.dart';
 
 import '../models/school.dart';
 import '../services/auto_start.dart';
@@ -126,6 +129,29 @@ class MultiSpawn {
       }
       grid[i] = cols.map(_cleanCell).toList();
     }
+    return parseGrid(grid);
+  }
+
+  /// 直接解析 Excel 文件（.xlsx），完全绕开剪贴板格式问题
+  static List<Map<String, String>> parseXlsxBytes(Uint8List bytes) {
+    final decoder = SpreadsheetDecoder.decodeBytes(bytes);
+    for (final table in decoder.tables.values) {
+      final grid = <List<String>>[];
+      for (final row in table.rows) {
+        grid.add(row.map(_cellToString).toList());
+      }
+      final rows = parseGrid(grid);
+      if (rows.isNotEmpty) return rows;
+    }
+    return [];
+  }
+
+  /// 把已清洗的二维表格解析成账号行
+  ///
+  /// 支持带表头（学号/账号、密码、志愿一/志愿二/...、服务器、标签 任意顺序）：
+  ///   志愿类列按列顺序合并为课程（顺序 = 志愿顺序），其他列忽略（如"微信名"）。
+  /// 不带表头时按位置解析：第1列学号、第2列密码、其后非 URL/标签的列为课程。
+  static List<Map<String, String>> parseGrid(List<List<String>> grid) {
     if (grid.isEmpty) return [];
 
     // ---- 表头检测 ----
@@ -187,8 +213,11 @@ class MultiSpawn {
             continue;
           }
           final cleaned = _cleanCourse(c);
-          if (cleaned.isNotEmpty && !courses.contains(cleaned)) {
-            courses.add(cleaned);
+          if (cleaned.isNotEmpty) {
+            for (final part in cleaned.split(',')) {
+              final p = part.trim();
+              if (p.isNotEmpty && !courses.contains(p)) courses.add(p);
+            }
           }
         }
       }
@@ -270,6 +299,17 @@ class MultiSpawn {
   static final _unicodeSpace = RegExp(
     '[\u00a0\u2002-\u200b\u202f\u205f\u3000]',
   );
+
+  /// Excel 单元格值 → 字符串（整数去掉小数点，如 300020 不变成 300020.0）
+  static String _cellToString(Object? v) {
+    if (v == null) return '';
+    if (v is double) {
+      final d = v;
+      if (d == d.roundToDouble()) return d.toInt().toString();
+      return d.toString();
+    }
+    return v.toString().trim();
+  }
 
   /// 单元格基础清洗：unicode 空格→普通空格，合并空白，去首尾
   static String _cleanCell(String s) {

@@ -40,6 +40,7 @@ void main() {
     ].join('\n');
     final rows = MultiSpawn.parseRows(text);
     expect(rows.length, 2);
+    expect(rows[0]['courses'], '大学体育3（瑜伽）-0001,美术鉴赏-0007');
     expect(rows[0]['server'], '');
     expect(rows[1]['server'], 'http://newjw.lj-edu.cn/jwglxt');
     expect(rows[1]['tab'], '通识选修课');
