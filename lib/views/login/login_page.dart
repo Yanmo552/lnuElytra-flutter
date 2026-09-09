@@ -256,17 +256,17 @@ class _LoginPageState extends State<LoginPage> {
 
     // 可选：先逐个验证登录，只保留能登录的账号
     final valid = <Map<String, String>>[];
-    final failedUsers = <String>[];
+    final failed = <Map<String, String>>[]; // {'username': .., 'reason': ..}
     if (validateFirst) {
-      await _validateRows(rows, defaultServer, valid, failedUsers);
+      await _validateRows(rows, defaultServer, valid, failed);
       logStore.info(
-        '登录验证完成: 可用 ${valid.length}/${rows.length}，失败: ${failedUsers.join(', ')}',
+        '登录验证完成: 可用 ${valid.length}/${rows.length}，失败: ${failed.map((f) => f['username']).join(', ')}',
       );
     } else {
       valid.addAll(rows);
     }
     if (valid.isEmpty) {
-      toaster.error('没有能登录的账号（失败: ${failedUsers.join(', ')}）');
+      await _showBatchSummary(0, failed, valid.length, validateFirst);
       return;
     }
 
@@ -288,13 +288,45 @@ class _LoginPageState extends State<LoginPage> {
       if (done) okCount++;
     }
     logStore.info('批量多开: 成功启动 $okCount/${valid.length} 个窗口');
-    if (okCount > 0) {
-      toaster.success(
-        '已启动 $okCount 个抢课窗口${failedUsers.isEmpty ? '' : '，${failedUsers.length} 个账号无法登录已跳过'}',
-      );
-    } else {
-      toaster.error('窗口启动失败，请检查 exe 路径权限');
-    }
+    await _showBatchSummary(okCount, failed, valid.length, validateFirst);
+  }
+
+  /// 批量启动汇总：统一列出能启动/不能登录的账号
+  Future<void> _showBatchSummary(
+    int started,
+    List<Map<String, String>> failed,
+    int total,
+    bool validated,
+  ) async {
+    final failedText = failed.isEmpty
+        ? '无'
+        : failed
+            .map((f) => '${f['username']} — ${f['reason']}')
+            .join('\n');
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('批量启动汇总'),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              '✅ 成功启动 $started/$total 个抢课窗口\n\n'
+              '❌ 无法登录 ${failed.length} 个：\n$failedText\n\n'
+              '${validated ? '' : '（未勾选启动前验证，无法预知登录失败的账号）'}'
+              '登录失败的账号可以改好密码后，单独粘贴这几行重新启动。',
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 解析预览确认框：列出每个账号解析出的课程（最多显示前 8 个）
@@ -332,12 +364,12 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  /// 逐个验证登录，弹窗显示进度；可登录的行放进 [valid]，失败学号放进 [failed]
+  /// 逐个验证登录，弹窗显示进度；可登录的行放进 [valid]，失败的放进 [failed]
   Future<void> _validateRows(
     List<Map<String, String>> rows,
     String defaultServer,
     List<Map<String, String>> valid,
-    List<String> failed,
+    List<Map<String, String>> failed,
   ) async {
     if (!mounted) return;
     final progress = ValueNotifier<String>('准备验证...');
@@ -372,15 +404,18 @@ class _LoginPageState extends State<LoginPage> {
         final row = rows[i];
         progress.value = '验证 ${i + 1}/${rows.length}: ${row['username']}';
         final server = row['server']!.isEmpty ? defaultServer : row['server']!;
-        final loginOk = await MultiSpawn.validateLogin(
+        final reason = await MultiSpawn.validateLoginError(
           server: server,
           username: row['username']!,
           password: row['password']!,
         );
-        if (loginOk) {
+        if (reason == null) {
           valid.add(row);
         } else {
-          failed.add(row['username']!);
+          failed.add({
+            'username': row['username']!,
+            'reason': MultiSpawn.describeLoginError(reason),
+          });
         }
       }
     } finally {

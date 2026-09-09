@@ -60,8 +60,8 @@ class MultiSpawn {
     }
   }
 
-  /// 预验证登录：只启动能真正登录的账号
-  static Future<bool> validateLogin({
+  /// 预验证登录：返回 null 表示成功，否则返回失败原因
+  static Future<String?> validateLoginError({
     required String server,
     required String username,
     required String password,
@@ -70,10 +70,20 @@ class MultiSpawn {
       final client = await FClient.newWithBase(backend: resolveServer(server));
       await client.login(username: username, password: password);
       await client.checkLogin();
-      return true;
+      return null;
     } catch (e) {
-      return false;
+      return e.toString();
     }
+  }
+
+  /// 把登录异常转成用户能看懂的一句话
+  static String describeLoginError(String raw) {
+    final r = raw.toLowerCase();
+    if (r.contains('loginfailed')) return '账号或密码错误';
+    if (r.contains('captcha') || r.contains('验证码')) return '密码错误触发验证码';
+    if (r.contains('timeout') || r.contains('timed out')) return '网络超时';
+    if (r.contains('connect') || r.contains('refused')) return '连不上服务器';
+    return raw.length > 60 ? raw.substring(0, 60) : raw;
   }
 
   /// 从粘贴的表格文本解析账号行
