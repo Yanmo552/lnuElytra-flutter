@@ -1,7 +1,10 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../models/school.dart';
+import '../../services/log_store.dart';
+import '../../services/multi_spawn.dart';
 import '../../services/session.dart';
+import '../../services/toaster.dart';
 import '../../src/rust/third_party/lnu_elytra/flutter.dart';
 
 /// 登录页：选择学校 + 账密/Cookie 登录
@@ -32,6 +35,136 @@ class _LoginPageState extends State<LoginPage> {
     _passCtrl.dispose();
     _cookieCtrl.dispose();
     super.dispose();
+  }
+
+  /// 批量多开：粘贴账号表格（每行: 学号<TAB>密码<TAB>课程1,课程2[<TAB>服务器<TAB>标签]），
+  /// 每个账号启动一个独立窗口自动登录抢课
+  Future<void> _openMultiSpawn() async {
+    final ctrl = TextEditingController();
+    final serverCtrl = TextEditingController();
+    final intervalCtrl = TextEditingController(text: '200');
+    final maxCtrl = TextEditingController(text: '0');
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('批量多开'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('每行一个账号，从 Excel 复制后直接粘贴：'),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: ctrl,
+                  maxLines: 9,
+                  decoration: const InputDecoration(
+                    hintText: '学号\t密码\t课程1,课程2,...\t服务器\t标签\n'
+                        '例：\n'
+                        '202543401056\t密码1\t大学体育3（瑜伽）-0001,美术鉴赏-0007\n'
+                        '202530412016\t密码2\t影视鉴赏-0007\t\t通识选修课',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: serverCtrl,
+                        decoration: const InputDecoration(
+                          labelText: '默认服务器（行内留空时使用）',
+                          hintText: '留空 = 丽江师范',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: intervalCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: '轮询间隔(ms)',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: maxCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: '每窗口最多选几门(0=全部)',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('启动窗口'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    final rows = MultiSpawn.parseRows(ctrl.text);
+    if (rows.isEmpty) {
+      toaster.error('没有解析到有效行，格式：学号<TAB>密码<TAB>课程1,课程2');
+      return;
+    }
+    final defaultServer = serverCtrl.text.trim();
+    final intervalMs = int.tryParse(intervalCtrl.text.trim()) ?? 200;
+    final maxSlots = int.tryParse(maxCtrl.text.trim()) ?? 0;
+    if (intervalMs < 50) {
+      toaster.error('轮询间隔不能小于 50ms');
+      return;
+    }
+
+    var okCount = 0;
+    for (final row in rows) {
+      final server = row['server']!.isEmpty ? defaultServer : row['server']!;
+      final courses = row['courses']!.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      final done = await MultiSpawn.spawnWindow(
+        username: row['username']!,
+        password: row['password']!,
+        server: server,
+        tab: row['tab'] ?? '',
+        courses: courses,
+        intervalMs: intervalMs,
+        maxSlots: maxSlots,
+      );
+      if (done) okCount++;
+    }
+    logStore.info('批量多开: 成功启动 $okCount/${rows.length} 个窗口');
+    if (okCount > 0) {
+      toaster.success('已启动 $okCount 个抢课窗口');
+    } else {
+      toaster.error('窗口启动失败，请检查 exe 路径权限');
+    }
   }
 
   Future<void> _submit() async {
@@ -228,6 +361,15 @@ class _LoginPageState extends State<LoginPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Text('登录'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _openMultiSpawn,
+                icon: const Icon(Icons.grid_view, size: 18),
+                label: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Text('批量多开（粘贴账号表格）'),
                 ),
               ),
             ],

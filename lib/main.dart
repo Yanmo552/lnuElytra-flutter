@@ -3,14 +3,17 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'components/toast.dart';
+import 'services/auto_start.dart';
 import 'services/log_store.dart';
 import 'src/rust/frb_generated.dart';
 import 'views/responsive_shell.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
   logStore.start();
+
+  autoStart = AutoStartRequest.parse(args);
 
   runApp(const MyApp());
 }

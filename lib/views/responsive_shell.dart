@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../components/log_panel.dart';
+import '../models/school.dart';
+import '../services/auto_start.dart';
+import '../services/log_store.dart';
+import '../services/preset_store.dart';
 import '../services/session.dart';
 import '../services/toaster.dart';
 import '../src/rust/third_party/lnu_elytra/flutter.dart';
@@ -26,6 +30,63 @@ class ResponsiveShell extends StatefulWidget {
 class _ResponsiveShellState extends State<ResponsiveShell> {
   int _mobileTabIndex = 0;
   bool _checkingLogin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final req = autoStart;
+    autoStart = null;
+    if (req != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _processAutoStart(req));
+    }
+  }
+
+  Future<void> _processAutoStart(AutoStartRequest req) async {
+    try {
+            final school = req.server.isEmpty
+          ? schoolById('lijiang') ?? kPresetSchools.first
+          : (schoolByServer(req.server) ?? customSchool(req.server));
+      final client = await FClient.newWithBase(backend: school.server);
+      await client.login(username: req.username, password: req.password);
+      await client.checkLogin();
+
+      session.attachClient(req.username, client, school: school);
+      try {
+        final ck = await client.cookies();
+        if (ck != null && ck.isNotEmpty) session.savedCookie = ck;
+      } catch (_) {}
+
+      final tabIdx = _resolveTabIndex(school, req.tab);
+      presetStore.setTabIndex(tabIdx);
+      session.tabIndex = tabIdx;
+      presetStore.setIntervalMs(req.intervalMs);
+      presetStore.setMaxSlots(req.maxSlots);
+      for (final c in req.courses) {
+        presetStore.addCourse(c);
+      }
+
+      logStore.info('自动登录成功: ${req.username}，预设 ${req.courses.length} 门课');
+      autoRunPending.value = true;
+    } catch (e) {
+      logStore.error('自动登录失败: ' + req.username + ', $e');
+      if (mounted) toaster.error('自动登录失败: $e');
+    }
+  }
+
+  int _resolveTabIndex(School school, String tabText) {
+    final t = tabText.trim();
+    if (t.isEmpty || !school.hasTabs) return -1;
+    for (var i = 0; i < school.tabs.length; i++) {
+      final tab = school.tabs[i];
+      if (tab.id == t ||
+          tab.name == t ||
+          tab.name.contains(t) ||
+          t.contains(tab.name)) {
+        return i;
+      }
+    }
+    return -1;
+  }
 
   Future<void> _checkLogin() async {
     setState(() => _checkingLogin = true);
@@ -221,3 +282,4 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
     return const ImprovedLogPanel(showDivider: false);
   }
 }
+

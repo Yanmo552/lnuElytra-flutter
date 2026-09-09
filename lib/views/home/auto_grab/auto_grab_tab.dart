@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../services/auto_start.dart';
 import '../../../services/log_store.dart';
 import '../../../services/preset_store.dart';
 import '../../../services/session.dart';
@@ -78,6 +79,14 @@ class _AutoGrabTabState extends State<AutoGrabTab>
     _tabIndex = presetStore.tabIndex;
     _intervalCtrl.text = '$_intervalMs';
     _maxSlotsCtrl.text = '$_maxSlots';
+
+    // 子窗口模式（--auto）：登录完成后自动开始监控
+    if (autoRunPending.value && presetStore.courses.isNotEmpty) {
+      autoRunPending.value = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_running) _start();
+      });
+    }
   }
 
   @override
