@@ -10,6 +10,8 @@ class AutoStartRequest {
     required this.courses,
     this.intervalMs = 200,
     this.maxSlots = 0,
+    this.parallel = true,
+    this.autoRun = true,
   });
 
   final String username;
@@ -19,8 +21,10 @@ class AutoStartRequest {
   final List<String> courses; // 预设课程（顺序 = 志愿顺序）
   final int intervalMs;
   final int maxSlots;
+  final bool parallel; // true = 并行抢课, false = 按志愿顺序
+  final bool autoRun; // true = 登录后立即开始监控, false = 只填好预设不开始
 
-  /// 命令行格式: --auto 学号|密码|服务器|标签|间隔ms|最多选|课程1,课程2,...
+  /// 命令行格式: --auto 学号|密码|服务器|标签|间隔ms|最多选|课程1,课程2,...[|并行1/0|立即启动1/0]
   static AutoStartRequest? parse(List<String> args) {
     final i = args.indexOf('--auto');
     if (i < 0 || i + 1 >= args.length) return null;
@@ -38,6 +42,8 @@ class AutoStartRequest {
         .where((e) => e.isNotEmpty)
         .toList();
     if (username.isEmpty || password.isEmpty || courses.isEmpty) return null;
+    final parallel = parts.length <= 7 ? true : parts[7].trim() == '1';
+    final autoRun = parts.length <= 8 ? true : parts[8].trim() == '1';
     return AutoStartRequest(
       username: username,
       password: password,
@@ -46,6 +52,8 @@ class AutoStartRequest {
       courses: courses,
       intervalMs: interval,
       maxSlots: maxSlots,
+      parallel: parallel,
+      autoRun: autoRun,
     );
   }
 
@@ -58,8 +66,10 @@ class AutoStartRequest {
     List<String> courses, {
     int intervalMs = 200,
     int maxSlots = 0,
+    bool parallel = true,
+    bool autoRun = true,
   }) {
-    return '$username|$password|$server|$tab|$intervalMs|$maxSlots|${courses.join(',')}';
+    return '$username|$password|$server|$tab|$intervalMs|$maxSlots|${courses.join(',')}|${parallel ? 1 : 0}|${autoRun ? 1 : 0}';
   }
 }
 

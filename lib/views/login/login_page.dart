@@ -41,9 +41,12 @@ class _LoginPageState extends State<LoginPage> {
   /// 每个账号启动一个独立窗口自动登录抢课
   Future<void> _openMultiSpawn() async {
     final ctrl = TextEditingController();
-    final serverCtrl = TextEditingController();
+    final serverCtrl = TextEditingController(text: _selectedSchool.server);
     final intervalCtrl = TextEditingController(text: '200');
     final maxCtrl = TextEditingController(text: '0');
+    var parallel = true;
+    var autoRun = true;
+    var validateFirst = true;
     final ok = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -77,7 +80,7 @@ class _LoginPageState extends State<LoginPage> {
                         controller: serverCtrl,
                         decoration: const InputDecoration(
                           labelText: '默认服务器（行内留空时使用）',
-                          hintText: '留空 = 丽江师范',
+                          hintText: '留空 = 丽江师范；已按上方所选学校预填',
                           border: OutlineInputBorder(),
                           isDense: true,
                         ),
@@ -113,6 +116,62 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<bool>(
+                        initialValue: parallel,
+                        decoration: const InputDecoration(
+                          labelText: '抢课规则',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: true,
+                            child: Text('并行抢课（同时发）'),
+                          ),
+                          DropdownMenuItem(
+                            value: false,
+                            child: Text('按志愿顺序（一门一门来）'),
+                          ),
+                        ],
+                        onChanged: (v) => parallel = v ?? true,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButtonFormField<bool>(
+                        initialValue: autoRun,
+                        decoration: const InputDecoration(
+                          labelText: '启动模式',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: true,
+                            child: Text('立即开始抢课'),
+                          ),
+                          DropdownMenuItem(
+                            value: false,
+                            child: Text('仅填好预设，不开始'),
+                          ),
+                        ],
+                        onChanged: (v) => autoRun = v ?? true,
+                      ),
+                    ),
+                  ],
+                ),
+                CheckboxListTile(
+                  value: validateFirst,
+                  onChanged: (v) => validateFirst = v ?? true,
+                  title: const Text('启动前先验证登录（只启动能登录的账号）'),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
               ],
             ),
           ),
@@ -144,8 +203,24 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
+    // 可选：先逐个验证登录，只保留能登录的账号
+    final valid = <Map<String, String>>[];
+    final failedUsers = <String>[];
+    if (validateFirst) {
+      await _validateRows(rows, defaultServer, valid, failedUsers);
+      logStore.info(
+        '登录验证完成: 可用 ${valid.length}/${rows.length}，失败: ${failedUsers.join(', ')}',
+      );
+    } else {
+      valid.addAll(rows);
+    }
+    if (valid.isEmpty) {
+      toaster.error('没有能登录的账号（失败: ${failedUsers.join(', ')}）');
+      return;
+    }
+
     var okCount = 0;
-    for (final row in rows) {
+    for (final row in valid) {
       final server = row['server']!.isEmpty ? defaultServer : row['server']!;
       final courses = row['courses']!.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
       final done = await MultiSpawn.spawnWindow(
@@ -156,14 +231,74 @@ class _LoginPageState extends State<LoginPage> {
         courses: courses,
         intervalMs: intervalMs,
         maxSlots: maxSlots,
+        parallel: parallel,
+        autoRun: autoRun,
       );
       if (done) okCount++;
     }
-    logStore.info('批量多开: 成功启动 $okCount/${rows.length} 个窗口');
+    logStore.info('批量多开: 成功启动 $okCount/${valid.length} 个窗口');
     if (okCount > 0) {
-      toaster.success('已启动 $okCount 个抢课窗口');
+      toaster.success(
+        '已启动 $okCount 个抢课窗口${failedUsers.isEmpty ? '' : '，${failedUsers.length} 个账号无法登录已跳过'}',
+      );
     } else {
       toaster.error('窗口启动失败，请检查 exe 路径权限');
+    }
+  }
+
+  /// 逐个验证登录，弹窗显示进度；可登录的行放进 [valid]，失败学号放进 [failed]
+  Future<void> _validateRows(
+    List<Map<String, String>> rows,
+    String defaultServer,
+    List<Map<String, String>> valid,
+    List<String> failed,
+  ) async {
+    if (!mounted) return;
+    final progress = ValueNotifier<String>('准备验证...');
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('验证登录中'),
+        content: SizedBox(
+          width: 360,
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: ValueListenableBuilder<String>(
+                  valueListenable: progress,
+                  builder: (_, v, _) => Text(v),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    try {
+      for (var i = 0; i < rows.length; i++) {
+        final row = rows[i];
+        progress.value = '验证 ${i + 1}/${rows.length}: ${row['username']}';
+        final server = row['server']!.isEmpty ? defaultServer : row['server']!;
+        final loginOk = await MultiSpawn.validateLogin(
+          server: server,
+          username: row['username']!,
+          password: row['password']!,
+        );
+        if (loginOk) {
+          valid.add(row);
+        } else {
+          failed.add(row['username']!);
+        }
+      }
+    } finally {
+      if (mounted) Navigator.of(context).pop();
     }
   }
 

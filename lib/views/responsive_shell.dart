@@ -61,12 +61,17 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
       session.tabIndex = tabIdx;
       presetStore.setIntervalMs(req.intervalMs);
       presetStore.setMaxSlots(req.maxSlots);
+      presetStore.setParallel(req.parallel);
       for (final c in req.courses) {
         presetStore.addCourse(c);
       }
 
       logStore.info('自动登录成功: ${req.username}，预设 ${req.courses.length} 门课');
-      autoRunPending.value = true;
+      if (req.autoRun) {
+        autoRunPending.value = true;
+      } else {
+        logStore.info('启动模式: 仅填好预设，不自动开始');
+      }
     } catch (e) {
       logStore.error('自动登录失败: ' + req.username + ', $e');
       if (mounted) toaster.error('自动登录失败: $e');
