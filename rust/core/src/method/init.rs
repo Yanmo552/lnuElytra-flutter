@@ -70,6 +70,14 @@ impl Client {
             self.store(name, value);
         }
 
+        // 广州商学院等学校查课需要 xkkz_xh 加密串；索引/展示页的 firstXkkzXh 即首个标签的 xkkz_xh
+        if self.use_store("xkkz_xh").is_empty() {
+            let fallback = self.use_store("firstXkkzXh").clone();
+            if !fallback.is_empty() {
+                self.store("xkkz_xh", &fallback);
+            }
+        }
+
         // 解析 onclick="queryCourse(this,'kklxdm','xkkz_id',...)" 提取映射
         let html_str = index_doc.html();
         let mut pos = 0;

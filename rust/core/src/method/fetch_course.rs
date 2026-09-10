@@ -34,6 +34,8 @@ impl Client {
             sfkcfx: &'a str, kkbk: &'a str, kkbkdj: &'a str,
             sfkgbcx: &'a str, sfrxtgkcxd: &'a str, tykczgxdcs: &'a str,
             rlkz: &'a str, xkzgbj: &'a str, jxbzb: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            xkkz_xh: &'a str,
         }
 
         let pd = PDRQ {
@@ -58,6 +60,7 @@ impl Client {
             sfrxtgkcxd: self.use_store("sfrxtgkcxd"), tykczgxdcs: self.use_store("tykczgxdcs"),
             rlkz: self.use_store("rlkz"), xkzgbj: self.use_store("xkzgbj"),
             jxbzb: self.use_store("jxbzb"),
+            xkkz_xh: self.use_store("xkkz_xh"),
         };
 
         #[derive(Deserialize, Debug)]
@@ -138,6 +141,8 @@ impl Client {
             jg_id: &'a str, xsbj: &'a str, mzm: &'a str, xz: &'a str,
             bh_id: &'a str, xqh_id: &'a str, zyfx_id: &'a str, xslbdm: &'a str,
             kspage: &'a str, jspage: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            xkkz_xh: &'a str,
         }
 
         #[derive(Deserialize, Debug)]
@@ -188,7 +193,8 @@ impl Client {
                 xkxnm: self.use_store("xkxnm"), xkxqm: self.use_store("xkxqm"), jg_id: self.use_store("jg_id_1"),
                 xsbj: self.use_store("xsbj"), mzm: self.use_store("mzm"), xz: self.use_store("xz"),
                 bh_id: self.use_store("bh_id"), xqh_id: self.use_store("xqh_id"), zyfx_id: self.use_store("zyfx_id"),
-                xslbdm: self.use_store("xslbdm"), kspage: "1", jspage: "999",
+            xslbdm: self.use_store("xslbdm"), kspage: "1", jspage: "999",
+            xkkz_xh: self.use_store("xkkz_xh"),
             };
 
             let resp = match self.post(def::SELECT_COURSE_PART_DISPLAY_URL)?.form(&pd).send().await {
@@ -269,6 +275,8 @@ impl Client {
             sfkcfx: &'a str, kkbk: &'a str, kkbkdj: &'a str,
             sfkgbcx: &'a str, sfrxtgkcxd: &'a str, tykczgxdcs: &'a str,
             rlkz: &'a str, xkzgbj: &'a str, jxbzb: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            xkkz_xh: &'a str,
         }
 
         let pd = PDRQ {
@@ -293,6 +301,7 @@ impl Client {
             sfrxtgkcxd: self.use_store("sfrxtgkcxd"), tykczgxdcs: self.use_store("tykczgxdcs"),
             rlkz: self.use_store("rlkz"), xkzgbj: self.use_store("xkzgbj"),
             jxbzb: self.use_store("jxbzb"),
+            xkkz_xh: self.use_store("xkkz_xh"),
         };
 
         #[derive(Deserialize, Debug)]
@@ -384,6 +393,8 @@ impl Client {
             sfkcfx: &'a str, kkbk: &'a str, kkbkdj: &'a str,
             sfkgbcx: &'a str, sfrxtgkcxd: &'a str, tykczgxdcs: &'a str,
             rlkz: &'a str, xkzgbj: &'a str, jxbzb: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            xkkz_xh: &'a str,
         }
 
         let pd = PDRQ3 {
@@ -408,6 +419,7 @@ impl Client {
             sfrxtgkcxd: self.use_store("sfrxtgkcxd"), tykczgxdcs: self.use_store("tykczgxdcs"),
             rlkz: self.use_store("rlkz"), xkzgbj: self.use_store("xkzgbj"),
             jxbzb: self.use_store("jxbzb"),
+            xkkz_xh: self.use_store("xkkz_xh"),
         };
 
         #[derive(Deserialize, Debug)]
@@ -507,6 +519,13 @@ impl Client {
             let name = item.attr("name").unwrap_or("");
             let value = item.attr("value").unwrap_or("");
             self.store(name, value);
+        }
+
+        if self.use_store("xkkz_xh").is_empty() {
+            let fallback = self.use_store("firstXkkzXh").clone();
+            if !fallback.is_empty() {
+                self.store("xkkz_xh", &fallback);
+            }
         }
 
         info!("switched tab OK, kklxdm={}", self.use_store("firstKklxdm"));
