@@ -39,6 +39,15 @@ const List<School> kPresetSchools = [
   ),
   School(id: 'shandong', name: '山东青年政治学院', server: 'https://jw.sdyu.edu.cn/jwglxt'),
   School(id: 'gcc', name: '广州商学院', server: 'http://jwxt.gcc.edu.cn'),
+  School(
+    id: 'huanggang',
+    name: '黄冈师范学院',
+    server: 'http://211.69.159.74/jwglxt',
+    tabs: [
+      SchoolTab('5A7778E9017E6A82E063E80C1FACBA6F', '体育分项'),
+      SchoolTab('5A623C9565FDE248E063E80C1FAC1370', '英语分项'),
+    ],
+  ),
 ];
 
 School? schoolById(String id) {
