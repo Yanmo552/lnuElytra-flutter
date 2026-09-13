@@ -93,7 +93,7 @@ static NDK_RUNTIME: NdkRuntime = NdkRuntime;
 /// Then initializes `rustls-platform-verifier` with [`NdkRuntime`].
 ///
 /// Must be called exactly once before any TLS connection is established.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn Java_com_mcitem_lnu_1elytra_MyPlugin_init_1android(
     mut unowned_env: jni::EnvUnowned<'_>,
     _class: jni::sys::jobject,
