@@ -1,14 +1,13 @@
 use crate::{
     Client, Error, def,
     error::R,
-    utils::{ToHtml, UseInputValue},
+    utils::{ToHtml, ToResponse, UseInputValue},
 };
 
 impl Client {
     pub async fn check_login(&self) -> R<String> {
         self.get(def::LOGIN_URL)?
-            .send()
-            .await?
+            .send_r().await?
             ._doc()
             .await?
             .use_val(&def::S_SESSION_USER_KEY)

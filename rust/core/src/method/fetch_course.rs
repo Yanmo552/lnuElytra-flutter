@@ -7,7 +7,7 @@ use crate::{
     def,
     error::{Error, R},
     utils::{
-        ToHtml, ToJson,
+        ToHtml, ToJson, ToResponse,
         macros::{info, warn},
     },
 };
@@ -69,7 +69,7 @@ impl Client {
         #[derive(Deserialize, Debug)]
         struct PDIS { kch_id: String, #[serde(default)] kcmc: String, }
 
-        let pdr = self.post(def::SELECT_COURSE_PART_DISPLAY_URL)?.form(&pd).send().await?.jsonr::<PDRS>().await?;
+        let pdr = self.post(def::SELECT_COURSE_PART_DISPLAY_URL)?.form(&pd).send_r().await?.jsonr::<PDRS>().await?;
         let kcmc = pdr.tmp_list.get(0).map(|x| x.kcmc.clone()).unwrap_or_default();
 
         #[derive(Serialize, Debug)]
@@ -117,7 +117,7 @@ impl Client {
         #[derive(Deserialize, Debug)]
         struct QDRS { do_jxb_id: String, jsxx: String, jxb_id: String, sksj: String, }
 
-        let qdr = self.post(def::SELECT_COURSE_QUERY_DO_WITH_COURSE_ID_URL)?.form(&qd).send().await?.jsonr::<Vec<QDRS>>().await?;
+        let qdr = self.post(def::SELECT_COURSE_QUERY_DO_WITH_COURSE_ID_URL)?.form(&qd).send_r().await?.jsonr::<Vec<QDRS>>().await?;
 
         let mut course = Course {
             xkkz_id: self.stores.get("firstXkkzId").ok_or(Error::Missing("[firstXkkzId]".into()))?.into(),
@@ -197,7 +197,7 @@ impl Client {
             xkkz_xh: self.use_store("xkkz_xh"),
             };
 
-            let resp = match self.post(def::SELECT_COURSE_PART_DISPLAY_URL)?.form(&pd).send().await {
+            let resp = match self.post(def::SELECT_COURSE_PART_DISPLAY_URL)?.form(&pd).send_r().await {
                 Ok(r) => r,
                 Err(_) => continue,
             };
@@ -224,7 +224,7 @@ impl Client {
                     jg_id: self.use_store("jg_id_1"), ccdm: self.use_store("ccdm"), xbm: self.use_store("xbm"),
                 };
 
-                let resp = match self.post(def::SELECT_COURSE_QUERY_DO_WITH_COURSE_ID_URL)?.form(&qd).send().await {
+                let resp = match self.post(def::SELECT_COURSE_QUERY_DO_WITH_COURSE_ID_URL)?.form(&qd).send_r().await {
                     Ok(r) => r,
                     Err(_) => continue,
                 };
@@ -309,7 +309,7 @@ impl Client {
         #[derive(Deserialize, Debug)]
         struct PDIS2 { kch_id: String, #[serde(default)] kcmc: String, }
 
-        let pdr = self.post(def::SELECT_COURSE_PART_DISPLAY_URL)?.form(&pd).send().await?.jsonr::<PDRS>().await?;
+        let pdr = self.post(def::SELECT_COURSE_PART_DISPLAY_URL)?.form(&pd).send_r().await?.jsonr::<PDRS>().await?;
         if pdr.tmp_list.is_empty() {
             return Err(Error::JxbNotFound("tab empty"));
         }
@@ -359,7 +359,7 @@ impl Client {
         #[derive(Deserialize, Debug)]
         struct QDRS { do_jxb_id: String, jsxx: String, jxb_id: String, sksj: String, }
 
-        let qdr = self.post(def::SELECT_COURSE_QUERY_DO_WITH_COURSE_ID_URL)?.form(&qd).send().await?.jsonr::<Vec<QDRS>>().await?;
+        let qdr = self.post(def::SELECT_COURSE_QUERY_DO_WITH_COURSE_ID_URL)?.form(&qd).send_r().await?.jsonr::<Vec<QDRS>>().await?;
 
         let mut course = Course {
             xkkz_id: self.stores.get("firstXkkzId").ok_or(Error::Missing("[firstXkkzId]".into()))?.into(),
@@ -427,7 +427,7 @@ impl Client {
         #[derive(Deserialize, Debug)]
         struct PDIS3 { kch_id: String, #[serde(default)] kcmc: String, }
 
-        let pdr = self.post(def::SELECT_COURSE_PART_DISPLAY_URL)?.form(&pd).send().await?.jsonr::<PDRS3>().await?;
+        let pdr = self.post(def::SELECT_COURSE_PART_DISPLAY_URL)?.form(&pd).send_r().await?.jsonr::<PDRS3>().await?;
         if pdr.tmp_list.is_empty() {
             return Err(Error::JxbNotFound("tab empty"));
         }
@@ -477,7 +477,7 @@ impl Client {
         #[derive(Deserialize, Debug)]
         struct QDRS3 { do_jxb_id: String, jsxx: String, jxb_id: String, sksj: String, }
 
-        let qdr = self.post(def::SELECT_COURSE_QUERY_DO_WITH_COURSE_ID_URL)?.form(&qd).send().await?.jsonr::<Vec<QDRS3>>().await?;
+        let qdr = self.post(def::SELECT_COURSE_QUERY_DO_WITH_COURSE_ID_URL)?.form(&qd).send_r().await?.jsonr::<Vec<QDRS3>>().await?;
 
         let mut course = Course {
             xkkz_id: xkkz_id_val.into(),
@@ -510,8 +510,7 @@ impl Client {
         let display_doc = self
             .post(def::SELECT_COURSE_DISPLAY_URL)?
             .form(&display_data)
-            .send()
-            .await?
+            .send_r().await?
             .doc()
             .await?;
 

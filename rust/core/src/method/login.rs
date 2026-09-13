@@ -4,7 +4,7 @@ use crate::{
     Client, def,
     error::{Error, R},
     utils::{
-        EncPwd, PublicKey, ToHtml, UseInputValue, UseVer,
+        EncPwd, PublicKey, ToHtml, ToResponse, UseInputValue, UseVer,
         macros::{debug, error, info, trace},
     },
 };
@@ -16,7 +16,7 @@ impl Client {
 
         trace!("加载登录页");
 
-        let doc = self.get(def::LOGIN_URL)?.send().await?._doc().await?;
+        let doc = self.get(def::LOGIN_URL)?.send_r().await?._doc().await?;
 
         trace!("解析登录页，获取csrftoken");
 
@@ -34,8 +34,7 @@ impl Client {
             trace!("获取公钥，使用公钥加密密码");
             Cow::Owned(
                 self.get(def::PUBLIC_KEY_URL)?
-                    .send()
-                    .await?
+                    .send_r().await?
                     .json::<PublicKey>()
                     .await?
                     .into_rsa_key()?
@@ -68,8 +67,7 @@ impl Client {
             .post(def::LOGIN_URL)?
             .query(&[("time", timestamp)])
             .form(&login_data)
-            .send()
-            .await?
+            .send_r().await?
             ._doc()
             .await?;
 

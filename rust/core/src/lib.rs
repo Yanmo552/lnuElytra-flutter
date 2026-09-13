@@ -27,6 +27,7 @@ use crate::error::R;
 use {reqwest_cookie_store::CookieStoreRwLock, std::sync::Arc};
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 #[derive(Debug)]
 pub struct Client {
@@ -102,6 +103,12 @@ impl Client {
         let client = reqwest::Client::builder();
 
         let client = client.user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0");
+
+        // 网络超时与连接池：弱网/抖动时避免请求无限挂起
+        let client = client
+            .connect_timeout(Duration::from_secs(4))
+            .timeout(Duration::from_secs(10))
+            .pool_idle_timeout(Duration::from_secs(30));
 
         #[cfg(not(feature = "reqwest_cookie_store"))]
         let client = client.cookie_store(true);

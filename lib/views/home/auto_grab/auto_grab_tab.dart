@@ -21,6 +21,7 @@ class _PresetTask {
   PresetStatus status = PresetStatus.pending;
   String note = '';
   int attempts = 0;
+  Course? resolved; // 已解析课程缓存（kch_id/jxb 一轮内稳定）
 }
 
 class _TaskNotifier extends ChangeNotifier {
@@ -249,6 +250,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
             t.status = PresetStatus.pending;
             t.note = '';
           }
+          t.resolved = null; // 每轮监控开始前清空缓存，重新解析
         }
       });
     }
@@ -318,7 +320,14 @@ class _AutoGrabTabState extends State<AutoGrabTab>
     t.attempts++;
 
     try {
-      final course = await _resolve(t.name);
+      // 优先复用已解析课程：稳态每轮只发 1 个选课请求，速度与原版一致甚至更快
+      Course? course = t.resolved;
+      if (course == null) {
+        course = await _resolve(t.name);
+        if (course != null) {
+          t.resolved = course;
+        }
+      }
       if (course == null) {
         _update(t, PresetStatus.failed, '未找到课程（第 ${t.attempts} 次，重试中）');
         return;
@@ -341,6 +350,13 @@ class _AutoGrabTabState extends State<AutoGrabTab>
       );
 
       final msg = resp.msg ?? '';
+      // 疑似课程数据变化时丢弃缓存，下一轮强制重新查询
+      if (msg.contains('未知异常') ||
+          msg.contains('请重新') ||
+          msg.contains('刷新') ||
+          msg.contains('不存在')) {
+        t.resolved = null;
+      }
       if (resp.flag == '1') {
         _update(t, PresetStatus.success, '✅ 选课成功！');
         logStore.info('✅ 选课成功: ${course.kcmc.isEmpty ? t.name : course.kcmc}');
@@ -367,6 +383,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
 
       _update(t, PresetStatus.failed, '$msg（第 ${t.attempts} 次，重试中）');
     } on FError catch (e) {
+      t.resolved = null; // 异常后重新解析
       logStore.error('抢课异常: ${t.name}, ${e.error}');
       if (e.kind == FErrorKind.loginFailed || e.kind == FErrorKind.cookieError) {
         logStore.error('登录失效，尝试自动重登...');
@@ -381,6 +398,7 @@ class _AutoGrabTabState extends State<AutoGrabTab>
       }
       _update(t, PresetStatus.failed, '错误：${e.error}（重试中）');
     } catch (e) {
+      t.resolved = null;
       logStore.error('抢课异常: ${t.name}, $e');
       _update(t, PresetStatus.failed, '错误：$e（重试中）');
     }

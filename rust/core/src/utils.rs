@@ -117,6 +117,34 @@ impl ToHtml for Response {
     }
 }
 
+pub trait ToResponse {
+    /// 发送请求；连接/超时错误自动重试 2 次，提高弱网成功率
+    async fn send_r(self) -> R<Response>;
+}
+
+impl ToResponse for RequestBuilder {
+    async fn send_r(self) -> R<Response> {
+        let mut attempt: u32 = 0;
+        loop {
+            let rb = match self.try_clone() {
+                Some(rb) => rb,
+                None => return self.send().await.map_err(Into::into),
+            };
+            match rb.send().await {
+                Ok(resp) => return Ok(resp),
+                Err(e) => {
+                    let retryable = e.is_connect() || e.is_timeout();
+                    if retryable && attempt < 2 {
+                        attempt += 1;
+                        continue;
+                    }
+                    return Err(e.into());
+                }
+            }
+        }
+    }
+}
+
 pub trait UseInputValue {
     fn use_val(&self, selector: &Selector) -> R<&str>;
 }
@@ -199,7 +227,7 @@ impl Client {
         let Ok(req) = self.get(def::SELECT_COURSE_HTML_URL) else {
             return false;
         };
-        let Ok(res) = req.send().await else {
+        let Ok(res) = req.send_r().await else {
             return false;
         };
         let Ok(doc) = res.doc().await else {

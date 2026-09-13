@@ -4,7 +4,7 @@ use crate::{
     Client, def,
     error::{Error, R},
     utils::{
-        ToJson,
+        ToJson, ToResponse,
         macros::{debug, error, info, trace, warn},
     },
 };
@@ -83,8 +83,7 @@ impl Client {
                 xkxqm: self.use_store("xkxqm"),
                 jcxx_id: "",
             })
-            .send()
-            .await?;
+            .send_r().await?;
 
         let res = res.jsonr::<SelectCourseResponse>().await?;
 
@@ -137,8 +136,7 @@ impl Client {
                 rlzlkz: "1",
                 cdrlkz: "0",
             })
-            .send()
-            .await?;
+            .send_r().await?;
 
         let body = res.text().await?;
         info!("子班V2响应: {}", &body[..body.len().min(500)]);
@@ -222,8 +220,7 @@ impl Client {
                 kklxdm: self.use_store("firstKklxdm"),
                 xklc: "2",
             })
-            .send()
-            .await?;
+            .send_r().await?;
 
         let body = res.text().await?;
         trace!("子班列表响应: {}", &body[..body.len().min(300)]);
@@ -295,8 +292,7 @@ impl Client {
                 njdm_id: njdm_id_v3,
                 zyh_id: zyh_id_v3,
             })
-            .send()
-            .await?;
+            .send_r().await?;
 
         let res = res.jsonr::<SelectCourseResponse>().await?;
 

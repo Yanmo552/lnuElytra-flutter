@@ -3,7 +3,7 @@ use serde::Serialize;
 use crate::{
     Client, def,
     error::{Error, R},
-    utils::{ToHtml, macros::info},
+    utils::{ToHtml, ToResponse, macros::info},
 };
 
 impl Client {
@@ -32,8 +32,7 @@ impl Client {
 
         let index_doc = self
             .get(def::SELECT_COURSE_HTML_URL)?
-            .send()
-            .await?
+            .send_r().await?
             .doc()
             .await?;
 
@@ -59,8 +58,7 @@ impl Client {
         let display_doc = self
             .post(def::SELECT_COURSE_DISPLAY_URL)?
             .form(&display_data)
-            .send()
-            .await?
+            .send_r().await?
             .doc()
             .await?;
 

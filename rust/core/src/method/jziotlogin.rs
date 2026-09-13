@@ -1,14 +1,13 @@
 use crate::{
     Client, def,
     error::R,
-    utils::{ToHtml, UseInputValue},
+    utils::{ToHtml, ToResponse, UseInputValue},
 };
 
 impl Client {
     pub async fn jziotlogin(&mut self) -> R<String> {
         self.get(def::JZIOTLOGIN_URL)?
-            .send()
-            .await?
+            .send_r().await?
             ._doc()
             .await?
             .use_val(&def::S_SESSION_USER_KEY)
