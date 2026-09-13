@@ -85,7 +85,7 @@ impl Client {
             })
             .send_r().await?;
 
-        let res = res.jsonr::<SelectCourseResponse>().await?;
+        let res = res.jsonr::<SelectCourseResponse>().await?.normalized();
 
         if res.is_success() {
             info!("子班选课成功");
@@ -156,7 +156,7 @@ impl Client {
             Some(format!("BODY:{}", &body[..body.len().min(5000)]))
         };
 
-        let res = SelectCourseResponse { flag: flag.into(), msg };
+        let res = SelectCourseResponse { flag: flag.into(), msg }.normalized();
 
         if res.is_success() {
             info!("子班V2选课成功");
@@ -294,7 +294,7 @@ impl Client {
             })
             .send_r().await?;
 
-        let res = res.jsonr::<SelectCourseResponse>().await?;
+        let res = res.jsonr::<SelectCourseResponse>().await?.normalized();
 
         if res.is_success() {
             info!("选课成功");
@@ -337,5 +337,22 @@ impl SelectCourseResponse {
 
     pub fn msg(&self) -> Option<&str> {
         self.msg.as_deref()
+    }
+
+    /// 部分学校（如黄冈师范）课程已满时返回 flag="-1"、msg="0,jxb_id,已选人数,"，
+    /// 把这种原始数组段翻译成友好提示，便于日志与 UI 展示。
+    pub fn normalized(mut self) -> Self {
+        if self.flag == "-1" {
+            if let Some(m) = &self.msg {
+                let parts: Vec<&str> = m.split(',').collect();
+                if parts.len() >= 3
+                    && !parts[2].is_empty()
+                    && parts[2].chars().all(|c| c.is_ascii_digit())
+                {
+                    self.msg = Some(format!("该教学班已无余量，不可选！(已选 {} 人)", parts[2]));
+                }
+            }
+        }
+        self
     }
 }
